@@ -1,0 +1,107 @@
+{% extends "admin_base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Dashboard</h1>
+  <p>Overview of your bot and web platform.</p>
+  <a class="view-site" href="/" target="_blank">🌐 View Live Site</a>
+</div>
+
+<!-- BOT STATS -->
+<p class="section-title" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:12px;">📱 Telegram Bot</p>
+{% if bot %}
+<div class="stat-grid">
+  <div class="stat-card" style="--c:#b45aff">
+    <div class="sc-label">Total Users</div>
+    <div class="sc-val">{{ bot.total_users | default(0) | int }}</div>
+    <div class="sc-sub">All-time registrations</div>
+  </div>
+  <div class="stat-card" style="--c:#3a8cff">
+    <div class="sc-label">DAU</div>
+    <div class="sc-val">{{ bot.dau | default(0) | int }}</div>
+    <div class="sc-sub">Active in last 24h</div>
+  </div>
+  <div class="stat-card" style="--c:#41d18a">
+    <div class="sc-label">MAU</div>
+    <div class="sc-val">{{ bot.mau | default(0) | int }}</div>
+    <div class="sc-sub">Active this month</div>
+  </div>
+  <div class="stat-card" style="--c:#ff5b3a">
+    <div class="sc-label">Searches Today</div>
+    <div class="sc-val">{{ bot.searches_today | default(0) | int }}</div>
+    <div class="sc-sub">{{ bot.searches_month | default(0) | int }} this month</div>
+  </div>
+  <div class="stat-card" style="--c:#ff8a3a">
+    <div class="sc-label">Downloads Today</div>
+    <div class="sc-val">{{ bot.downloads_today | default(0) | int }}</div>
+    <div class="sc-sub">{{ bot.downloads_month | default(0) | int }} this month</div>
+  </div>
+  <div class="stat-card" style="--c:#ffc107">
+    <div class="sc-label">WAU</div>
+    <div class="sc-val">{{ bot.wau | default(0) | int }}</div>
+    <div class="sc-sub">Active this week</div>
+  </div>
+</div>
+{% else %}
+<div class="section" style="margin-bottom:24px;">
+  <p style="color:var(--muted);font-size:13px;">⚠️ Bot stats unavailable — <code>stats.db</code> not found. Make sure the bot has run at least once.</p>
+</div>
+{% endif %}
+
+<!-- WEB STATS -->
+<p class="section-title" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:12px;margin-top:8px;">🌐 Web Platform</p>
+<div class="stat-grid">
+  <div class="stat-card" style="--c:#3a8cff">
+    <div class="sc-label">Page Views Today</div>
+    <div class="sc-val">{{ web.views_today | default(0) | int }}</div>
+    <div class="sc-sub">{{ web.views_month | default(0) | int }} this month</div>
+  </div>
+  <div class="stat-card" style="--c:#41d18a">
+    <div class="sc-label">Searches Today</div>
+    <div class="sc-val">{{ web.searches_today | default(0) | int }}</div>
+    <div class="sc-sub">{{ web.searches_week | default(0) | int }} this week</div>
+  </div>
+  <div class="stat-card" style="--c:#ff5b3a">
+    <div class="sc-label">Download Clicks Today</div>
+    <div class="sc-val">{{ web.dl_today | default(0) | int }}</div>
+    <div class="sc-sub">{{ web.dl_month | default(0) | int }} this month</div>
+  </div>
+  <div class="stat-card" style="--c:#b45aff">
+    <div class="sc-label">Custom Movies</div>
+    <div class="sc-val">{{ movie_count | default(0) }}</div>
+    <div class="sc-sub">{{ featured_count | default(0) }} featured</div>
+  </div>
+</div>
+
+<!-- RECENT MOVIES -->
+<div class="section">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <div class="section-title" style="margin-bottom:0;">Recently Added Movies</div>
+    <a href="/admin/movies/add" class="btn btn-primary btn-sm">+ Add Movie</a>
+  </div>
+  {% if recent %}
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px;">
+    {% for m in recent %}
+    <div style="background:var(--panel-2);border:1px solid var(--line);border-radius:10px;overflow:hidden;">
+      {% if m['poster_url'] %}
+      <img src="{{ m['poster_url'] }}" alt="{{ m['title'] }}" style="width:100%;aspect-ratio:2/3;object-fit:cover;">
+      {% else %}
+      <div style="aspect-ratio:2/3;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:28px;">🎬</div>
+      {% endif %}
+      <div style="padding:8px 8px 10px;">
+        <div style="font-size:11px;font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">{{ m['title'] }}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px;">{{ m['year'] or '—' }}</div>
+        {% if m['is_featured'] %}<span class="badge-featured" style="font-size:9px;margin-top:4px;display:inline-block;">★ Featured</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:30px 20px;">
+    <div class="es-icon">🎬</div>
+    <p>No movies added yet. <a href="/admin/movies/add" style="color:var(--accent);">Add your first movie →</a></p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

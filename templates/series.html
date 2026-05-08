@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }} · {{ site_name }}{% endblock %}
+{% block content %}
+<article class="detail" {% if item.backdrop %}style="--backdrop: url('{{ item.backdrop }}');"{% endif %}>
+  <div class="detail-bg"></div>
+  <div class="detail-inner">
+    <div class="detail-poster">
+      {% if item.poster %}
+        <img src="{{ item.poster }}" alt="{{ item.title }}">
+      {% else %}
+        <div class="poster-fallback large">{{ (item.title or '?')[0] | upper }}</div>
+      {% endif %}
+    </div>
+    <div class="detail-body">
+      <h1>{{ item.title }}</h1>
+      <div class="detail-meta">
+        {% if item.year %}<span>{{ item.year }}</span>{% endif %}
+        {% if item.rating %}<span class="rating-inline">★ {{ '%.1f' % item.rating }}</span>{% endif %}
+        <span class="kind {{ 'anime' if item.is_anime else 'series' }}">
+          {{ 'Anime' if item.is_anime else 'Series' }}
+        </span>
+      </div>
+      {% if item.genres %}
+        <div class="chips">
+          {% for g in item.genres %}<span class="chip">{{ g }}</span>{% endfor %}
+        </div>
+      {% endif %}
+      {% if item.overview %}<p class="overview">{{ item.overview }}</p>{% endif %}
+    </div>
+  </div>
+</article>
+
+<section class="seasons">
+  {% for s in item.seasons %}
+    <details class="season" {% if loop.first %}open{% endif %}>
+      <summary>
+        <span class="season-name">{{ s.name }}</span>
+        <span class="season-count muted">{{ s.episodes | length }} episodes</span>
+      </summary>
+      <ul class="ep-list">
+        {% for ep in s.episodes %}
+          <li class="ep">
+            <div class="ep-head">
+              <div class="ep-num">E{{ '%02d' % (ep.episode_number or 0) }}</div>
+              <div class="ep-title">{{ ep.title or 'Episode ' ~ ep.episode_number }}</div>
+            </div>
+            {% if ep.downloads %}
+              <div class="ep-dls">
+                {% for d in ep.downloads %}
+                  <a class="pill" href="{{ d.url }}" rel="noopener">
+                    {{ d.quality }}{% if d.size %} · {{ d.size }}{% endif %}
+                  </a>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="muted small">No downloads available</div>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </details>
+  {% endfor %}
+</section>
+{% endblock %}

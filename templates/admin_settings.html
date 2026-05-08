@@ -1,0 +1,61 @@
+{% extends "admin_base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Settings</h1>
+  <p>Configure API keys and security options. Keys are saved in the local database.</p>
+</div>
+
+{% if saved %}
+<div style="background:rgba(65,209,138,.12);border:1px solid rgba(65,209,138,.3);border-radius:10px;padding:12px 16px;margin-bottom:20px;font-size:13px;color:#41d18a;">
+  ✅ Settings saved successfully!
+</div>
+{% endif %}
+
+<form method="post">
+  <div class="section" style="margin-bottom:20px;">
+    <div class="section-title">🎬 TMDB API</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">
+      Used for searching movies/series and auto-fetching details (poster, rating, overview, genres).
+      Get a free API key at <a href="https://www.themoviedb.org/settings/api" target="_blank" style="color:var(--accent);">themoviedb.org</a>.
+    </p>
+    <div class="form-group">
+      <label>TMDB API Key</label>
+      <input type="text" name="tmdb_api_key" placeholder="Enter TMDB API key…"
+             value="{{ tmdb_key }}" autocomplete="off"
+             style="font-family:monospace;">
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;">
+        {% if tmdb_key %}✅ Key configured ({{ tmdb_key[:8] }}…){% else %}⚠️ Not configured — TMDB search disabled{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="section" style="margin-bottom:20px;">
+    <div class="section-title">🎞 OMDB / IMDB API</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">
+      Used for searching IMDB titles and auto-fetching ratings, plot, genres.
+      Get a free key (1000 req/day) at <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" style="color:var(--accent);">omdbapi.com</a>.
+    </p>
+    <div class="form-group">
+      <label>OMDB API Key</label>
+      <input type="text" name="omdb_api_key" placeholder="Enter OMDB API key…"
+             value="{{ omdb_key }}" autocomplete="off"
+             style="font-family:monospace;">
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;">
+        {% if omdb_key %}✅ Key configured ({{ omdb_key[:8] }}…){% else %}⚠️ Not configured — IMDB search disabled{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="section" style="margin-bottom:20px;">
+    <div class="section-title">🔐 Security</div>
+    <div class="form-group">
+      <label>Change Admin Password</label>
+      <input type="password" name="admin_password" placeholder="Leave blank to keep current password…">
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;">Current default: <code>admin@hubstream2024</code> (change immediately in production)</div>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary">💾 Save Settings</button>
+</form>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ movie.title }} ({{ movie.year }}) · {{ site_name }}{% endblock %}
+{% block content %}
+
+{% if movie.backdrop_url %}
+<style>
+  .detail { --backdrop: url('{{ movie.backdrop_url }}'); }
+</style>
+{% endif %}
+
+<div class="detail">
+  {% if movie.backdrop_url %}
+  <div class="detail-bg"></div>
+  {% endif %}
+  <div class="detail-inner">
+    <div class="detail-poster">
+      {% if movie.poster_url %}
+      <img src="{{ movie.poster_url }}" alt="{{ movie.title }}">
+      {% else %}
+      <div class="poster-fallback large">🎬</div>
+      {% endif %}
+    </div>
+    <div class="detail-body">
+      {% if movie.is_featured %}
+      <div style="display:inline-block;padding:3px 10px;border-radius:6px;background:rgba(255,193,7,.15);border:1px solid rgba(255,193,7,.3);color:#ffc107;font-size:11px;font-weight:700;letter-spacing:.4px;margin-bottom:8px;">★ FEATURED</div>
+      {% endif %}
+      <h1>{{ movie.title }}</h1>
+      <div class="detail-meta">
+        <span class="kind movie">Custom</span>
+        {% if movie.year %}<span>{{ movie.year }}</span>{% endif %}
+        {% if movie.rating %}<span class="rating-inline">⭐ {{ movie.rating }}</span>{% endif %}
+      </div>
+      {% if movie.genres %}
+      <div class="chips">
+        {% for g in movie.genres %}<span class="chip">{{ g }}</span>{% endfor %}
+      </div>
+      {% endif %}
+      {% if movie.overview %}
+      <p class="overview">{{ movie.overview }}</p>
+      {% endif %}
+
+      {% if downloads %}
+      <div class="dl-head">Download Links</div>
+      <ul class="dl-list">
+        {% for d in downloads %}
+        <li>
+          <div>
+            <div class="dl-q">{{ d.quality }}</div>
+            {% if d.size %}<div class="dl-s">{{ d.size }}</div>{% endif %}
+          </div>
+          <a class="pill" href="{{ url_for('custom_download_page', token=d.token) }}">
+            ⬇ Download
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted" style="margin-top:16px;">No download links available for this title yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<a class="btn ghost" href="{{ url_for('home') }}" style="margin-bottom:32px;display:inline-flex;">← Back to Home</a>
+
+{% endblock %}

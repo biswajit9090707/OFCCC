@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Stream-quality downloads, zero hassle.</h1>
+  <p>Search any movie, series or anime - pick your quality - download in one tap.</p>
+  <form class="hero-search" action="{{ url_for('search') }}" method="get">
+    <input type="search" name="q" placeholder='Try "Oppenheimer", "Loki", "Jujutsu Kaisen"...' required>
+    <button type="submit">Search</button>
+  </form>
+</section>
+
+{% if custom_movies %}
+<section class="row">
+  <h2>Our Picks</h2>
+  <div class="grid">
+    {% for item in custom_movies %}
+      {% include "_card.html" %}
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if rows %}
+  {% for row in rows %}
+  <section class="row">
+    <h2>{{ row.title }}</h2>
+    <div class="grid">
+      {% for item in row['items'] %}
+        {% include "_card.html" %}
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+{% else %}
+  <p class="muted center">Catalogue is warming up. Try a search above.</p>
+{% endif %}
+{% endblock %}

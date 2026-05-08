@@ -1,0 +1,15 @@
+<a class="card" href="{{ item.href if item.href is defined and item.href else url_for('title', tmdb_id=item.tmdb_id) }}">
+  <div class="poster">
+    {% if item.poster %}
+      <img src="{{ item.poster }}" alt="{{ item.title }}" loading="lazy">
+    {% else %}
+      <div class="poster-fallback">{{ (item.title or '?')[0] | upper }}</div>
+    {% endif %}
+    <span class="badge {{ item.kind }}">{{ item.kind }}</span>
+    {% if item.rating %}<span class="rating">★ {{ '%.1f' % item.rating }}</span>{% endif %}
+  </div>
+  <div class="meta">
+    <div class="title" title="{{ item.title }}">{{ item.title }}</div>
+    {% if item.year %}<div class="year">{{ item.year }}</div>{% endif %}
+  </div>
+</a>

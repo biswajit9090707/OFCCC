@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Download · {{ title }} · {{ site_name }}{% endblock %}
+{% block content %}
+
+<style>
+  /* ── ad placeholders ──────────────────────── */
+  .ad-zone {
+    width: 100%; border-radius: 12px; overflow: hidden;
+    background: var(--panel-2); border: 1px dashed var(--line);
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 6px;
+    color: var(--muted); font-size: 12px; letter-spacing: 0.4px;
+    position: relative;
+  }
+  .ad-zone::before {
+    content: "AD";
+    position: absolute; top: 8px; right: 10px;
+    font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    color: var(--muted); opacity: 0.5;
+  }
+  .ad-zone-top { height: 90px; margin-bottom: 20px; }
+  .ad-zone-bottom { height: 250px; margin-top: 20px; }
+  .ad-zone svg { opacity: 0.3; }
+
+  /* ── countdown ring ───────────────────────── */
+  .countdown-wrap {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 14px; margin: 22px auto 10px;
+  }
+  .ring-svg { transform: rotate(-90deg); }
+  .ring-track { fill: none; stroke: var(--panel-2); stroke-width: 5; }
+  .ring-fill {
+    fill: none; stroke: url(#ring-grad); stroke-width: 5;
+    stroke-linecap: round;
+    stroke-dasharray: 219.9; /* 2 * PI * 35 */
+    stroke-dashoffset: 0;
+    transition: stroke-dashoffset 1s linear;
+  }
+  .ring-label {
+    font-size: 28px; font-weight: 800; letter-spacing: -1px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .countdown-msg {
+    font-size: 13px; color: var(--muted); margin: 0;
+  }
+
+  /* ── download button (hidden initially) ───── */
+  .dl-cta-wrap { display: none; flex-direction: column; align-items: center; gap: 8px; }
+  .dl-cta-wrap.ready { display: flex; animation: fadeUp .4s ease; }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── preparing bar ────────────────────────── */
+  .prep-bar-wrap { width: 100%; max-width: 360px; margin: 0 auto; }
+  .prep-bar-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; text-align: left; }
+  .prep-bar-track {
+    height: 4px; border-radius: 999px;
+    background: var(--panel-2); overflow: hidden;
+  }
+  .prep-bar-fill {
+    height: 100%; border-radius: 999px; width: 0%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    transition: width 1s linear;
+  }
+</style>
+
+<section class="dl-page">
+  <div class="dl-card" style="max-width:600px;">
+
+    <!-- Top Ad Banner -->
+    <div class="ad-zone ad-zone-top">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+      </svg>
+      <span>Advertisement</span>
+    </div>
+
+    <!-- File Info -->
+    <div class="dl-tag">{{ quality }}</div>
+    <h1 class="dl-title">{{ title }}</h1>
+    {% if size %}<div class="dl-sub">File size: <b>{{ size }}</b></div>{% endif %}
+    <div class="dl-sub muted">{{ file_name }}</div>
+
+    <!-- Countdown Timer -->
+    <div class="countdown-wrap" id="countdownWrap">
+      <svg class="ring-svg" width="90" height="90" viewBox="0 0 90 90">
+        <defs>
+          <linearGradient id="ring-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%"   stop-color="#ff5b3a"/>
+            <stop offset="100%" stop-color="#ff8a3a"/>
+          </linearGradient>
+        </defs>
+        <circle class="ring-track" cx="45" cy="45" r="35"/>
+        <circle class="ring-fill"  cx="45" cy="45" r="35" id="ringFill"/>
+      </svg>
+      <div class="ring-label" id="ringLabel">15</div>
+      <p class="countdown-msg">Please wait while your download is being prepared…</p>
+      <div class="prep-bar-wrap">
+        <div class="prep-bar-label" id="prepMsg">Verifying link…</div>
+        <div class="prep-bar-track">
+          <div class="prep-bar-fill" id="prepBar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Download Button (shown after countdown) -->
+    <div class="dl-cta-wrap" id="dlWrap">
+      <a class="dl-cta" href="{{ url_for('download_stream', token=token) }}" id="dlBtn">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/>
+        </svg>
+        <span>Start Download</span>
+      </a>
+      <p class="dl-note muted">
+        Your download will start through {{ site_name }}. Keep this tab open until the file finishes saving.
+      </p>
+    </div>
+
+    <!-- Bottom Ad Rectangle -->
+    <div class="ad-zone ad-zone-bottom">
+      <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.2">
+        <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+      </svg>
+      <span>Advertisement · 300 × 250</span>
+    </div>
+
+    <a class="dl-back" href="{{ url_for('home') }}">← Back to catalogue</a>
+  </div>
+</section>
+
+<script>
+(function () {
+  const TOTAL = 15;
+  const circumference = 2 * Math.PI * 35; // 219.91…
+
+  const ring     = document.getElementById('ringFill');
+  const label    = document.getElementById('ringLabel');
+  const wrap     = document.getElementById('countdownWrap');
+  const dlWrap   = document.getElementById('dlWrap');
+  const prepBar  = document.getElementById('prepBar');
+  const prepMsg  = document.getElementById('prepMsg');
+
+  const steps = [
+    { at: 0,  msg: "Verifying link…" },
+    { at: 5,  msg: "Fetching file info…" },
+    { at: 10, msg: "Almost ready…" },
+    { at: 14, msg: "Download ready!" },
+  ];
+
+  let elapsed = 0;
+
+  // initialise ring to full (will drain)
+  ring.style.strokeDashoffset = '0';
+
+  const timer = setInterval(() => {
+    elapsed++;
+
+    // update ring (drains from full → empty)
+    const pct   = elapsed / TOTAL;
+    const offset = circumference * pct;
+    ring.style.strokeDashoffset = offset.toFixed(2);
+
+    // update countdown number
+    const remaining = TOTAL - elapsed;
+    label.textContent = remaining > 0 ? remaining : '✓';
+
+    // update status message & bar
+    for (let i = steps.length - 1; i >= 0; i--) {
+      if (elapsed >= steps[i].at) {
+        prepMsg.textContent = steps[i].msg;
+        break;
+      }
+    }
+    prepBar.style.width = (pct * 100).toFixed(1) + '%';
+
+    if (elapsed >= TOTAL) {
+      clearInterval(timer);
+      // hide countdown, show download button
+      wrap.style.display = 'none';
+      dlWrap.classList.add('ready');
+    }
+  }, 1000);
+})();
+</script>
+
+{% endblock %}

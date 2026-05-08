@@ -1,0 +1,88 @@
+{% extends "admin_base.html" %}
+{% block title %}Movies{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Movies Library</h1>
+  <p>Manage your custom movie catalogue ({{ movies | length }} entries{% if q %} matching "{{ q }}"{% endif %}).</p>
+</div>
+
+<div class="section">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+    <form class="search-bar" style="margin:0;flex:1;max-width:420px;" method="get">
+      <input name="q" value="{{ q }}" placeholder="Search by title or movie ID..." style="background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:8px;padding:9px 14px;color:var(--fg);font-size:13px;outline:none;width:100%;">
+      <button type="submit" class="btn btn-ghost btn-sm">Search</button>
+      {% if q %}<a href="/admin/movies" class="btn btn-ghost btn-sm">Clear</a>{% endif %}
+    </form>
+    <a href="/admin/movies/add" class="btn btn-primary">+ Add Movie</a>
+  </div>
+
+  {% if movies %}
+  <table>
+    <thead>
+      <tr>
+        <th style="width:50px;"></th>
+        <th>Title</th>
+        <th>Year</th>
+        <th>Rating</th>
+        <th>Movie ID</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in movies %}
+      <tr>
+        <td>
+          {% if m['poster_url'] %}
+          <img class="thumb" src="{{ m['poster_url'] }}" alt="{{ m['title'] }}">
+          {% else %}
+          <div class="thumb-placeholder">MOV</div>
+          {% endif %}
+        </td>
+        <td>
+          <div style="font-weight:600;font-size:13px;">{{ m['title'] }}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">ID #{{ m['custom_id'] or "-" }}</div>
+          {% if m['overview'] %}
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;">{{ m['overview'] }}</div>
+          {% endif %}
+        </td>
+        <td style="color:var(--muted);">{{ m['year'] or "-" }}</td>
+        <td>
+          {% if m['rating'] %}
+          <span style="color:#41d18a;font-weight:700;">{{ "%.1f"|format(m['rating']) }}</span>
+          {% else %}-{% endif %}
+        </td>
+        <td style="color:var(--muted);font-size:12px;font-family:monospace;">{{ m['custom_id'] or "-" }}</td>
+        <td>
+          {% if m['is_featured'] %}
+          <span class="badge-featured">Featured</span>
+          {% else %}
+          <span style="font-size:11px;color:var(--muted);">Standard</span>
+          {% endif %}
+        </td>
+        <td>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <form method="post" action="/admin/movies/feature/{{ m['id'] }}" style="display:inline;">
+              <button class="btn btn-star btn-sm" title="Toggle featured">{% if m['is_featured'] %}Starred{% else %}Feature{% endif %}</button>
+            </form>
+            <a href="/custom/{{ m['id'] }}" target="_blank" class="btn btn-ghost btn-sm" title="Preview movie page">Preview</a>
+            <form method="post" action="/admin/movies/delete/{{ m['id'] }}"
+                  onsubmit="return confirm('Delete {{ m['title'] }}?')" style="display:inline;">
+              <button class="btn btn-danger btn-sm">Delete</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="es-icon">MOV</div>
+    <p>{% if q %}No movies match "{{ q }}".{% else %}No movies in your library yet.{% endif %}</p>
+    <a href="/admin/movies/add" class="btn btn-primary" style="margin-top:16px;display:inline-flex;">+ Add First Movie</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

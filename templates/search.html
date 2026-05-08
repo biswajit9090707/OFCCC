@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Search “{{ q }}” · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Results for “{{ q }}”</h1>
+  <div class="muted">{{ results | length }} on this page · page {{ page }} of {{ total_pages }}</div>
+</div>
+
+{% if results %}
+  <div class="grid">
+    {% for item in results %}
+      {% include "_card.html" %}
+    {% endfor %}
+  </div>
+  <nav class="pager">
+    {% if page > 1 %}
+      <a class="btn ghost" href="{{ url_for('search', q=q, page=page-1) }}">← Previous</a>
+    {% endif %}
+    {% if page < total_pages %}
+      <a class="btn" href="{{ url_for('search', q=q, page=page+1) }}">Next →</a>
+    {% endif %}
+  </nav>
+{% else %}
+  <div class="empty">
+    <h2>No results</h2>
+    <p>Try a different spelling, or a shorter title.</p>
+    <a class="btn" href="{{ url_for('home') }}">Back to home</a>
+  </div>
+{% endif %}
+{% endblock %}

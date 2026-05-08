@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Login · HubStream Pro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+  :root{--bg:#0b0b0f;--panel:#14141b;--line:#25252f;--fg:#f3f4f6;--muted:#9aa0a6;--accent:#ff5b3a;--accent-2:#ff8a3a;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:radial-gradient(900px 600px at 60% -10%,#1f1422 0%,transparent 60%),var(--bg);
+       color:var(--fg);font-family:'Inter',sans-serif;min-height:100vh;
+       display:flex;align-items:center;justify-content:center;}
+  .card{width:100%;max-width:380px;padding:40px 36px;
+        background:rgba(20,20,27,.85);border:1px solid var(--line);
+        border-radius:20px;backdrop-filter:blur(20px);
+        box-shadow:0 24px 60px rgba(0,0,0,.5);}
+  .logo{display:flex;align-items:center;gap:10px;margin-bottom:28px;}
+  .logo-mark{width:36px;height:36px;border-radius:10px;
+             background:linear-gradient(135deg,var(--accent),var(--accent-2));
+             display:flex;align-items:center;justify-content:center;font-size:16px;}
+  .logo-text{font-size:15px;font-weight:700;letter-spacing:.3px;}
+  .logo-sub{font-size:11px;color:var(--muted);margin-top:1px;}
+  h1{font-size:22px;font-weight:800;margin-bottom:6px;}
+  p.sub{font-size:13px;color:var(--muted);margin-bottom:24px;}
+  label{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;display:block;margin-bottom:6px;}
+  input[type=password]{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--line);
+    border-radius:10px;padding:12px 14px;color:var(--fg);font-size:14px;outline:none;
+    transition:border-color .2s;}
+  input[type=password]:focus{border-color:var(--accent);}
+  .error{background:rgba(255,91,58,.12);border:1px solid rgba(255,91,58,.35);
+         border-radius:8px;padding:10px 14px;font-size:13px;color:#ff8a3a;margin-bottom:16px;}
+  button{width:100%;margin-top:16px;padding:13px;border:0;border-radius:10px;cursor:pointer;
+         font-size:15px;font-weight:700;color:#fff;
+         background:linear-gradient(135deg,var(--accent),var(--accent-2));
+         box-shadow:0 8px 22px rgba(255,91,58,.3);transition:filter .15s,transform .12s;}
+  button:hover{filter:brightness(1.08);transform:translateY(-1px);}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-mark">▶</div>
+    <div>
+      <div class="logo-text">HubStream Pro</div>
+      <div class="logo-sub">Admin Panel</div>
+    </div>
+  </div>
+  <h1>Sign In</h1>
+  <p class="sub">Enter the admin password to continue.</p>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post">
+    <label for="pwd">Password</label>
+    <input type="password" id="pwd" name="password" autofocus autocomplete="current-password" required>
+    <button type="submit">Sign In →</button>
+  </form>
+</div>
+</body>
+</html>

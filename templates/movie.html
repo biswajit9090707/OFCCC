@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }}{% if item.year %} ({{ item.year }}){% endif %} · {{ site_name }}{% endblock %}
+{% block content %}
+<article class="detail" {% if item.backdrop %}style="--backdrop: url('{{ item.backdrop }}');"{% endif %}>
+  <div class="detail-bg"></div>
+  <div class="detail-inner">
+    <div class="detail-poster">
+      {% if item.poster %}
+        <img src="{{ item.poster }}" alt="{{ item.title }}">
+      {% else %}
+        <div class="poster-fallback large">{{ (item.title or '?')[0] | upper }}</div>
+      {% endif %}
+    </div>
+    <div class="detail-body">
+      <h1>{{ item.title }}</h1>
+      <div class="detail-meta">
+        {% if item.year %}<span>{{ item.year }}</span>{% endif %}
+        {% if item.runtime %}<span>{{ item.runtime }} min</span>{% endif %}
+        {% if item.rating %}<span class="rating-inline">★ {{ '%.1f' % item.rating }}</span>{% endif %}
+        <span class="kind movie">Movie</span>
+      </div>
+      {% if item.genres %}
+        <div class="chips">
+          {% for g in item.genres %}<span class="chip">{{ g }}</span>{% endfor %}
+        </div>
+      {% endif %}
+      {% if item.overview %}<p class="overview">{{ item.overview }}</p>{% endif %}
+
+      <h2 class="dl-head">Downloads</h2>
+      {% if item.downloads %}
+        <ul class="dl-list">
+          {% for d in item.downloads %}
+            <li>
+              <div>
+                <div class="dl-q">{{ d.quality }}</div>
+                {% if d.size %}<div class="dl-s">{{ d.size }}</div>{% endif %}
+              </div>
+              <a class="btn" href="{{ d.url }}" rel="noopener">Download</a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">No download links available yet for this title.</p>
+      {% endif %}
+    </div>
+  </div>
+</article>
+{% endblock %}
