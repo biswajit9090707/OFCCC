@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import functools
 import json
+import mimetypes
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -177,6 +178,24 @@ def _custom_download_target(token: str, url: str) -> str:
     return url
 
 
+def _guess_media_type(file_name: str) -> str:
+    ext = os.path.splitext((file_name or "").lower())[1]
+    explicit = {
+        ".mkv": "video/x-matroska",
+        ".mp4": "video/mp4",
+        ".m4v": "video/mp4",
+        ".mov": "video/quicktime",
+        ".webm": "video/webm",
+        ".avi": "video/x-msvideo",
+        ".m3u8": "application/vnd.apple.mpegurl",
+        ".ts": "video/mp2t",
+    }
+    if ext in explicit:
+        return explicit[ext]
+    guessed, _ = mimetypes.guess_type(file_name)
+    return guessed or "application/octet-stream"
+
+
 def _stream_telegram_message(chat_ref: Any, message_id: int, as_attachment: bool = True) -> Response:
     client = get_tg_app()
     if isinstance(chat_ref, str) and not chat_ref.startswith("@"):
@@ -196,7 +215,7 @@ def _stream_telegram_message(chat_ref: Any, message_id: int, as_attachment: bool
     media = message.document or message.video or message.audio
     file_name = media.file_name or "download"
     file_size = media.file_size
-    mime = media.mime_type or "application/octet-stream"
+    mime = media.mime_type or _guess_media_type(file_name)
 
     def stream_generator():
         loop = asyncio.new_event_loop()
@@ -263,8 +282,9 @@ def _proxy_http_stream(url: str, download_name: str, as_attachment: bool = True)
         v = upstream.headers.get(h)
         if v:
             resp.headers[h.title()] = v
-    if "Content-Type" not in resp.headers:
-        resp.headers["Content-Type"] = "application/octet-stream"
+    content_type = resp.headers.get("Content-Type", "")
+    if not content_type or content_type.startswith("application/octet-stream"):
+        resp.headers["Content-Type"] = _guess_media_type(download_name)
     disposition = "attachment" if as_attachment else "inline"
     resp.headers["Content-Disposition"] = f'{disposition}; filename="{download_name}"'
     resp.headers["Cache-Control"] = "private, no-store"
