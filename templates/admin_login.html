@@ -25,10 +25,10 @@
   h1{font-size:22px;font-weight:800;margin-bottom:6px;}
   p.sub{font-size:13px;color:var(--muted);margin-bottom:24px;}
   label{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;display:block;margin-bottom:6px;}
-  input[type=password]{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--line);
+  input[type=password], input[type=text]{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--line);
     border-radius:10px;padding:12px 14px;color:var(--fg);font-size:14px;outline:none;
     transition:border-color .2s;}
-  input[type=password]:focus{border-color:var(--accent);}
+  input[type=password]:focus, input[type=text]:focus{border-color:var(--accent);}
   .error{background:rgba(255,91,58,.12);border:1px solid rgba(255,91,58,.35);
          border-radius:8px;padding:10px 14px;font-size:13px;color:#ff8a3a;margin-bottom:16px;}
   button{width:100%;margin-top:16px;padding:13px;border:0;border-radius:10px;cursor:pointer;
@@ -48,11 +48,13 @@
     </div>
   </div>
   <h1>Sign In</h1>
-  <p class="sub">Enter the admin password to continue.</p>
+  <p class="sub">Enter your Telegram ID and admin password to continue.</p>
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
   <form method="post">
+    <label for="tg_id">Telegram User ID</label>
+    <input type="text" id="tg_id" name="tg_id" autofocus autocomplete="off" required style="margin-bottom:16px;">
     <label for="pwd">Password</label>
-    <input type="password" id="pwd" name="password" autofocus autocomplete="current-password" required>
+    <input type="password" id="pwd" name="password" autocomplete="current-password" required>
     <button type="submit">Sign In →</button>
   </form>
 </div>

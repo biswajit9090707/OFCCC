@@ -59,7 +59,8 @@ def decode_custom_dl_token(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 # ─────────────────────── ADMIN CONFIG ──────────────────────────
-ADMIN_PASSWORD  = os.getenv("ADMIN_PASSWORD", "admin@hubstream2024")
+ADMIN_PASSWORD  = os.getenv("ADMIN_PASSWORD", "BISWA@9090")
+ADMIN_TG_ID     = os.getenv("ADMIN_TG_ID", "")           # user id of the admin telegram
 OMDB_API_KEY    = os.getenv("OMDB_API_KEY", "")          # get free key at omdbapi.com
 BOT_STATS_PATH  = os.getenv(
     "BOT_STATS_DB",
@@ -107,6 +108,10 @@ def _normalize_positive_int(value: Any) -> Optional[int]:
 
 def _configured_admin_password() -> str:
     return _get_setting("admin_password") or ADMIN_PASSWORD
+
+
+def _configured_admin_tg_id() -> str:
+    return _get_setting("admin_tg_id") or ADMIN_TG_ID
 
 
 def _configured_omdb_api_key() -> str:
@@ -649,10 +654,17 @@ def healthz():
 def admin_login():
     error = None
     if request.method == "POST":
-        if request.form.get("password") == _configured_admin_password():
+        pwd = request.form.get("password")
+        tg_id = request.form.get("tg_id")
+        
+        expected_pwd = _configured_admin_password()
+        expected_tg = _configured_admin_tg_id()
+        
+        if pwd == expected_pwd and (not expected_tg or tg_id == expected_tg):
+            session.permanent = True  # cache for admin
             session["admin_ok"] = True
             return redirect(url_for("admin_dashboard"))
-        error = "Incorrect password."
+        error = "Incorrect Telegram ID or Password."
     return render_template("admin_login.html", error=error)
 
 
