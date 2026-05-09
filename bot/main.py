@@ -1286,7 +1286,7 @@ def _dl_keyboard(url: str, stream_url: str, title: str) -> InlineKeyboardMarkup:
     url is already the signed /d/<token> URL produced by make_download_url."""
     player_url = f"{WEB_BASE}/player?u={aiohttp.helpers.quote(stream_url, safe='')}&t={aiohttp.helpers.quote(title, safe='')}"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ Stream (Web App)", web_app=WebAppInfo(url=player_url))],
+        [InlineKeyboardButton("▶️ Stream (Browser)", url=player_url)],
         [InlineKeyboardButton("🌐 Open Download Page", url=url)]
     ])
 
@@ -2124,7 +2124,7 @@ async def deliver_file(
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("▶️ Stream (Web App)", web_app=WebAppInfo(url=player_url))],
+            [InlineKeyboardButton("▶️ Stream (Browser)", url=player_url)],
             [InlineKeyboardButton("🌐 Open Download Page", url=web_url)]
         ])
     )

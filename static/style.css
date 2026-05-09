@@ -413,3 +413,26 @@ img { display: block; max-width: 100%; }
   .tg-btn { padding: 9px 10px; }
   .tg-label { display: none; }
 }
+
+/* ── loading states ────────────────────────── */
+.btn.is-loading, .pill.is-loading, .dl-cta.is-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+.btn.is-loading::after, .pill.is-loading::after, .dl-cta.is-loading::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  top: 50%;
+  left: 50%;
+  margin: -9px 0 0 -9px;
+  border: 2.4px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

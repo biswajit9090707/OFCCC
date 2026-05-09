@@ -200,6 +200,15 @@
       event.stopPropagation();
     }
   }, true);
+
+  // Global Button Loading State
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('.btn, .pill, .dl-cta');
+    if (btn && !btn.hasAttribute('target') && !btn.classList.contains('dl-back')) {
+      // Show loading for internal links (stream, download, detail buttons)
+      btn.classList.add('is-loading');
+    }
+  });
 })();
 </script>
 </body>
