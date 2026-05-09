@@ -30,13 +30,7 @@ TG_API_HASH = "3ea2d9975816ef12baf40575973de92a"
 # Fallback to hardcoded token if env is missing (for local testing)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8775047846:AAFWxdXgWJZzqQyZuJBsJh7KYRL_YChyQ-E")
 
-tg_app = Client(
-    "hubstream_streamer",
-    api_id=TG_API_ID,
-    api_hash=TG_API_HASH,
-    bot_token=BOT_TOKEN,
-    in_memory=True
-)
+tg_app = None
 
 def run_async(coro):
     """Helper to run async code in sync Flask routes."""
@@ -45,14 +39,31 @@ def run_async(coro):
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
+    return asyncio.get_event_loop().run_until_complete(coro)
 
 # Global state for lazy start
 _tg_started = False
 
 def get_tg_app():
     """Starts the Pyrogram client lazily if not already started."""
-    global _tg_started
+    global tg_app, _tg_started
+    
+    # Ensure an event loop exists in this thread for Pyrogram
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    if tg_app is None:
+        tg_app = Client(
+            "hubstream_streamer",
+            api_id=TG_API_ID,
+            api_hash=TG_API_HASH,
+            bot_token=BOT_TOKEN,
+            in_memory=True
+        )
+
     if not _tg_started:
         try:
             run_async(tg_app.start())
