@@ -609,6 +609,15 @@ def play_page(token: str):
     )
 
 
+@app.route("/player")
+def generic_player():
+    u = request.args.get("u", "").strip()
+    t = request.args.get("t", "Now Playing").strip()
+    if not u:
+        abort(404)
+    return render_template("player.html", title=t, stream_url=u)
+
+
 @app.route("/file/<token>")
 def download_stream(token: str):
     """Stream the file from the upstream CDN, or show a friendly error if unavailable."""
