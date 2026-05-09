@@ -24,10 +24,20 @@ from itsdangerous import BadSignature, URLSafeSerializer
 import asyncio
 
 # ─────────────────────────── TG STREAMER ───────────────────────────
-TG_API_ID = 39093330
-TG_API_HASH = "3ea2d9975816ef12baf40575973de92a"
+TG_API_ID = int(os.getenv("TELEGRAM_API_ID") or os.getenv("TG_API_ID") or "39093330")
+TG_API_HASH = os.getenv("TELEGRAM_API_HASH") or os.getenv("TG_API_HASH") or "3ea2d9975816ef12baf40575973de92a"
+TG_SESSION_STRING = (
+    os.getenv("TELEGRAM_SESSION_STRING")
+    or os.getenv("SESSION_STRING")
+    or ""
+).strip()
 # Fallback to hardcoded token if env is missing (for local testing)
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8775047846:AAFWxdXgWJZzqQyZuJBsJh7KYRL_YChyQ-E")
+BOT_TOKEN = (
+    os.getenv("TELEGRAM_BOT_TOKEN")
+    or os.getenv("BOT_TOKEN")
+    or "8775047846:AAFWxdXgWJZzqQyZuJBsJh7KYRL_YChyQ-E"
+).strip()
+TG_AUTH_MODE = "user_session" if TG_SESSION_STRING else "bot_token"
 
 tg_app = None
 
@@ -59,19 +69,23 @@ def get_tg_app():
     if tg_app is None:
         from pyrogram import Client
 
-        tg_app = Client(
-            "hubstream_streamer",
-            api_id=TG_API_ID,
-            api_hash=TG_API_HASH,
-            bot_token=BOT_TOKEN,
-            in_memory=True
-        )
+        client_kwargs = {
+            "api_id": TG_API_ID,
+            "api_hash": TG_API_HASH,
+            "in_memory": True,
+        }
+        if TG_SESSION_STRING:
+            client_kwargs["session_string"] = TG_SESSION_STRING
+            tg_app = Client("hubstream_streamer_user", **client_kwargs)
+        else:
+            client_kwargs["bot_token"] = BOT_TOKEN
+            tg_app = Client("hubstream_streamer_bot", **client_kwargs)
 
     if not _tg_started:
         try:
             run_async(tg_app.start())
             _tg_started = True
-            print("Pyrogram Client started lazily.")
+            print(f"Pyrogram Client started lazily using {TG_AUTH_MODE}.")
         except Exception as e:
             print(f"Lazy Pyrogram Start Failed: {e}")
             raise e
@@ -1157,10 +1171,20 @@ def custom_download_stream(token: str):
             return _stream_telegram_message(*parsed)
         except Exception as e:
             print(f"Telegram streaming error: {e}")
+            if TG_SESSION_STRING:
+                message = (
+                    "Telegram download failed. Make sure the Telegram account behind "
+                    "TELEGRAM_SESSION_STRING can access that post."
+                )
+            else:
+                message = (
+                    "Telegram download failed. Add your bot to that channel, or configure "
+                    "TELEGRAM_SESSION_STRING so the website can fetch public channel files directly."
+                )
             return render_template(
                 "error.html",
                 code=503,
-                message="Telegram download failed. Add your bot to that channel and make sure it can access the post.",
+                message=message,
             ), 503
 
     # STANDARD HTTP LINK HANDLING
