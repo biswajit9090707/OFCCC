@@ -47,12 +47,21 @@ def run_async(coro):
         asyncio.set_event_loop(loop)
     return loop.run_until_complete(coro)
 
-# Attempt to start the Pyrogram client once
-try:
-    run_async(tg_app.start())
-    print("Pyrogram Client Started successfully.")
-except Exception as e:
-    print(f"Pyrogram Start Failed: {e}")
+# Global state for lazy start
+_tg_started = False
+
+def get_tg_app():
+    """Starts the Pyrogram client lazily if not already started."""
+    global _tg_started
+    if not _tg_started:
+        try:
+            run_async(tg_app.start())
+            _tg_started = True
+            print("Pyrogram Client started lazily.")
+        except Exception as e:
+            print(f"Lazy Pyrogram Start Failed: {e}")
+            raise e
+    return tg_app
 
 
 def _env_base(name: str, default: str) -> str:
@@ -1044,13 +1053,15 @@ def custom_download_stream(token: str):
                 chat_username = parts[0]
                 message_id = int(parts[1])
                 
-                # If it's a private channel t.me/c/12345/6, chat_username is 'c'
-                # and the real ID is parts[1] with -100 prefix.
+                # Convert to int if it's a private chat ID
                 if chat_username == "c" and len(parts) >= 3:
                     chat_username = int("-100" + parts[1])
                     message_id = int(parts[2])
                 
-                message = run_async(tg_app.get_messages(chat_username, message_id))
+                # Use lazy-loaded client
+                client = get_tg_app()
+                message = run_async(client.get_messages(chat_username, message_id))
+                
                 if not message or not (message.document or message.video or message.audio):
                     abort(404, description="No file found in this Telegram post.")
                 
@@ -1061,7 +1072,8 @@ def custom_download_stream(token: str):
 
                 def stream_generator():
                     loop = asyncio.new_event_loop()
-                    it = tg_app.stream_media(message).__aiter__()
+                    # Use client here
+                    it = client.stream_media(message).__aiter__()
                     while True:
                         try:
                             chunk = loop.run_until_complete(it.__anext__())
