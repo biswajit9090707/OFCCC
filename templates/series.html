@@ -47,9 +47,14 @@
             {% if ep.downloads %}
               <div class="ep-dls">
                 {% for d in ep.downloads %}
-                  <a class="pill" href="{{ d.url }}" rel="noopener">
-                    {{ d.quality }}{% if d.size %} · {{ d.size }}{% endif %}
-                  </a>
+                  <div style="display:flex; gap:6px;">
+                    <a class="pill" href="{{ d.url.replace('/d/', '/play/').replace('/cdl/', '/cplay/') }}" style="background:var(--panel-2); border:1px solid var(--line);">
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" style="margin-right:4px; margin-top:-2px;"><path d="m5 3 14 9-14 9V3z"/></svg>Stream
+                    </a>
+                    <a class="pill" href="{{ d.url }}" rel="noopener">
+                      {{ d.quality }}{% if d.size %} · {{ d.size }}{% endif %}
+                    </a>
+                  </div>
                 {% endfor %}
               </div>
             {% else %}

@@ -35,7 +35,10 @@
                 <div class="dl-q">{{ d.quality }}</div>
                 {% if d.size %}<div class="dl-s">{{ d.size }}</div>{% endif %}
               </div>
-              <a class="btn" href="{{ d.url }}" rel="noopener">Download</a>
+              <div style="display:flex; gap:8px;">
+                <a class="btn" href="{{ d.url.replace('/d/', '/play/').replace('/cdl/', '/cplay/') }}" style="background:var(--panel-2); border:1px solid var(--line); color:var(--fg);">Stream</a>
+                <a class="btn" href="{{ d.url }}" rel="noopener">Download</a>
+              </div>
             </li>
           {% endfor %}
         </ul>

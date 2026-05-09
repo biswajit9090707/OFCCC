@@ -1281,10 +1281,14 @@ def _dl_card_line(url: str) -> str:
     return "✅ <b>Download ready — tap the button below</b>"
 
 
-def _dl_keyboard(url: str) -> InlineKeyboardMarkup:
+def _dl_keyboard(url: str, stream_url: str, title: str) -> InlineKeyboardMarkup:
     """Always point the user at the web /d/<token> download page (ad countdown).
     url is already the signed /d/<token> URL produced by make_download_url."""
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Open Download Page", url=url)]])
+    player_url = f"{WEB_BASE}/player?u={aiohttp.helpers.quote(stream_url, safe='')}&t={aiohttp.helpers.quote(title, safe='')}"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("▶️ Stream (Web App)", web_app=WebAppInfo(url=player_url))],
+        [InlineKeyboardButton("🌐 Open Download Page", url=url)]
+    ])
 
 
 async def deliver_pending_download(
@@ -1328,7 +1332,8 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        keyboard = _dl_keyboard(url)
+        stream_url = url.replace("/d/", "/file/")
+        keyboard = _dl_keyboard(url, stream_url, title)
     elif kind == "cm":
         row = await fetch_custom_movie(custom_id)
         if not row:
@@ -1364,7 +1369,8 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        keyboard = _dl_keyboard(url)
+        stream_url = url.replace("/cdl/", "/cdlfile/")
+        keyboard = _dl_keyboard(url, stream_url, title)
     elif kind == "ep":
         season_no = int(payload.get("season") or 0)
         episode_no = int(payload.get("episode") or 0)
@@ -1408,7 +1414,8 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        keyboard = _dl_keyboard(url)
+        stream_url = url.replace("/d/", "/file/")
+        keyboard = _dl_keyboard(url, stream_url, f"{title} S{season_no:02d} E{episode_no:02d}")
     else:
         await context.bot.send_message(
             chat_id=chat_id, text="⚠️ Unknown download request."
@@ -2092,18 +2099,34 @@ async def deliver_file(
         )
         return
 
+    if "/cdl/" in web_url:
+        stream_url = web_url.replace("/cdl/", "/cdlfile/")
+    else:
+        stream_url = web_url.replace("/d/", "/file/")
+
+    # Extract title from caption loosely
+    try:
+        title = caption.split("<b>")[1].split("</b>")[0]
+    except Exception:
+        title = "Now Playing"
+
+    player_url = f"{WEB_BASE}/player?u={aiohttp.helpers.quote(stream_url, safe='')}&t={aiohttp.helpers.quote(title, safe='')}"
+
     text = (
         f"{caption}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🌐 <b>Tap below to open the download page</b>\n"
-        f"<i>A short wait is shown on the page before your download starts.</i>"
+        f"🌐 <b>Tap below to stream or download</b>\n"
+        f"<i>A short wait is shown on the download page before it starts.</i>"
     )
     await context.bot.send_message(
         chat_id=chat_id,
         text=text,
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Open Download Page", url=web_url)]])
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("▶️ Stream (Web App)", web_app=WebAppInfo(url=player_url))],
+            [InlineKeyboardButton("🌐 Open Download Page", url=web_url)]
+        ])
     )
 
 

@@ -39,7 +39,7 @@
 </div>
 
 <div class="player-container">
-  <video controls playsinline preload="metadata" crossorigin="anonymous">
+  <video controls playsinline preload="metadata" crossorigin="anonymous" controlsList="nodownload" oncontextmenu="return false;">
     <source src="{{ stream_url }}" type="video/mp4">
     Your browser does not support HTML5 video.
   </video>
