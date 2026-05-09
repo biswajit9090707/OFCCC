@@ -1332,7 +1332,7 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        stream_url = url.replace("/d/", "/file/")
+        stream_url = url.replace("/d/", "/stream/")
         keyboard = _dl_keyboard(url, stream_url, title)
     elif kind == "cm":
         row = await fetch_custom_movie(custom_id)
@@ -1369,7 +1369,7 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        stream_url = url.replace("/cdl/", "/cdlfile/")
+        stream_url = url.replace("/cdl/", "/cstream/")
         keyboard = _dl_keyboard(url, stream_url, title)
     elif kind == "ep":
         season_no = int(payload.get("season") or 0)
@@ -1414,7 +1414,7 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        stream_url = url.replace("/d/", "/file/")
+        stream_url = url.replace("/d/", "/stream/")
         keyboard = _dl_keyboard(url, stream_url, f"{title} S{season_no:02d} E{episode_no:02d}")
     else:
         await context.bot.send_message(
@@ -2100,9 +2100,9 @@ async def deliver_file(
         return
 
     if "/cdl/" in web_url:
-        stream_url = web_url.replace("/cdl/", "/cdlfile/")
+        stream_url = web_url.replace("/cdl/", "/cstream/")
     else:
-        stream_url = web_url.replace("/d/", "/file/")
+        stream_url = web_url.replace("/d/", "/stream/")
 
     # Extract title from caption loosely
     try:

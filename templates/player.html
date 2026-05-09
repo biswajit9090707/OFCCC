@@ -31,6 +31,16 @@
     font-weight: 700;
     margin: 0;
   }
+  .player-note {
+    max-width: 900px;
+    margin: 14px auto 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .player-note a {
+    color: var(--accent);
+    text-decoration: none;
+  }
 </style>
 
 <div class="player-header">
@@ -39,9 +49,31 @@
 </div>
 
 <div class="player-container">
-  <video controls playsinline preload="metadata" crossorigin="anonymous" controlsList="nodownload" oncontextmenu="return false;">
-    <source src="{{ stream_url }}" type="video/mp4">
+  <video id="sitePlayer" controls playsinline preload="metadata" crossorigin="anonymous" controlsList="nodownload" oncontextmenu="return false;" src="{{ stream_url }}">
     Your browser does not support HTML5 video.
   </video>
 </div>
+<p class="player-note" id="playerNote" hidden>
+  This file could not start in the browser player. It may be an unsupported video format for your browser.
+  <a href="{{ stream_url }}">Open the stream directly</a>
+</p>
+<script>
+(() => {
+  const video = document.getElementById('sitePlayer');
+  const note = document.getElementById('playerNote');
+  if (!video) return;
+
+  const showNote = () => {
+    if (note) note.hidden = false;
+  };
+
+  video.addEventListener('error', showNote);
+  video.addEventListener('loadedmetadata', () => {
+    const playPromise = video.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {});
+    }
+  }, { once: true });
+})();
+</script>
 {% endblock %}
