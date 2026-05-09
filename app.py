@@ -67,7 +67,7 @@ BOT_STATS_PATH  = os.getenv(
 )
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://xamicc222_db_user:LkOliSVjkBDGyYFT@cluster0.trwwl0v.mongodb.net/?appName=Cluster0")
-mongo_client = MongoClient(MONGO_URI)
+mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = mongo_client["hubstream"]
 custom_movies_col = db["custom_movies"]
 web_stats_col = db["web_stats"]
