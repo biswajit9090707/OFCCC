@@ -6,6 +6,7 @@
       <div class="poster-fallback">{{ (item.title or '?')[0] | upper }}</div>
     {% endif %}
     <span class="badge {{ item.kind }}">{{ item.kind }}</span>
+    {% if item.is_featured %}<span class="badge featured" style="left: auto; right: 10px; background: linear-gradient(135deg, #ffd700, #ffa500); color: #000;">Featured</span>{% endif %}
     {% if item.rating %}<span class="rating">★ {{ '%.1f' % item.rating }}</span>{% endif %}
   </div>
   <div class="meta">

@@ -347,6 +347,7 @@ def _build_custom_movie_item(movie: Dict[str, Any]) -> Dict[str, Any]:
         "downloads": downloads,
         "kind": "movie",
         "is_custom": True,
+        "is_featured": bool(movie.get("is_featured")),
         "href": url_for("custom_movie", mid=custom_id),
     }
 
@@ -533,15 +534,13 @@ def home():
     # Custom movies — full data including signed download tokens for modal
     custom_movies: List[Dict[str, Any]] = []
     try:
-        conn = _custom_db()
-        _rows = conn.execute(
-            "SELECT * FROM custom_movies ORDER BY is_featured DESC, added_at DESC"
-        ).fetchall()
-        conn.close()
-        for r in _rows:
-            custom_movies.append(_build_custom_movie_item(r))
-    except Exception:
-        pass
+        # MongoDB migration: Use custom_movies_col
+        cursor = custom_movies_col.find().sort([("is_featured", -1), ("added_at", -1)])
+        for doc in cursor:
+            custom_movies.append(_build_custom_movie_item(doc))
+    except Exception as e:
+        app.logger.error(f"Home custom movies fetch failed: {e}")
+        
     return render_template("home.html", rows=rows, custom_movies=custom_movies)
 
 
