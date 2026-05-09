@@ -21,6 +21,40 @@ from flask import (
 )
 from itsdangerous import BadSignature, URLSafeSerializer
 
+import asyncio
+from pyrogram import Client
+
+# ─────────────────────────── TG STREAMER ───────────────────────────
+TG_API_ID = 39093330
+TG_API_HASH = "3ea2d9975816ef12baf40575973de92a"
+# Fallback to hardcoded token if env is missing (for local testing)
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8775047846:AAFWxdXgWJZzqQyZuJBsJh7KYRL_YChyQ-E")
+
+tg_app = Client(
+    "hubstream_streamer",
+    api_id=TG_API_ID,
+    api_hash=TG_API_HASH,
+    bot_token=BOT_TOKEN,
+    in_memory=True
+)
+
+def run_async(coro):
+    """Helper to run async code in sync Flask routes."""
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
+
+# Attempt to start the Pyrogram client once
+try:
+    run_async(tg_app.start())
+    print("Pyrogram Client Started successfully.")
+except Exception as e:
+    print(f"Pyrogram Start Failed: {e}")
+
+
 def _env_base(name: str, default: str) -> str:
     return os.getenv(name, default).strip().rstrip("/")
 
@@ -994,11 +1028,60 @@ def custom_play_page(token: str):
 
 @app.route("/cdlfile/<token>")
 def custom_download_stream(token: str):
-    """Stream the custom movie file."""
+    """Stream the custom movie file, with special handling for Telegram t.me links."""
     info = decode_custom_dl_token(token)
     if not info:
         abort(404)
-    url = info["u"]
+    
+    url = info["u"].strip()
+    
+    # TELEGRAM LINK HANDLING (t.me/channel/id)
+    if "t.me/" in url:
+        try:
+            # Parse url like https://t.me/username/123 or https://t.me/c/12345/6
+            parts = url.split("t.me/")[-1].split("/")
+            if len(parts) >= 2:
+                chat_username = parts[0]
+                message_id = int(parts[1])
+                
+                # If it's a private channel t.me/c/12345/6, chat_username is 'c'
+                # and the real ID is parts[1] with -100 prefix.
+                if chat_username == "c" and len(parts) >= 3:
+                    chat_username = int("-100" + parts[1])
+                    message_id = int(parts[2])
+                
+                message = run_async(tg_app.get_messages(chat_username, message_id))
+                if not message or not (message.document or message.video or message.audio):
+                    abort(404, description="No file found in this Telegram post.")
+                
+                media = message.document or message.video or message.audio
+                file_name = media.file_name or "download"
+                file_size = media.file_size
+                mime = media.mime_type or "application/octet-stream"
+
+                def stream_generator():
+                    loop = asyncio.new_event_loop()
+                    it = tg_app.stream_media(message).__aiter__()
+                    while True:
+                        try:
+                            chunk = loop.run_until_complete(it.__anext__())
+                            yield chunk
+                        except StopAsyncIteration:
+                            break
+                        except Exception:
+                            break
+
+                resp = Response(stream_with_context(stream_generator()), mimetype=mime)
+                resp.headers["Content-Disposition"] = f'attachment; filename="{file_name}"'
+                if file_size:
+                    resp.headers["Content-Length"] = file_size
+                resp.headers["Cache-Control"] = "no-cache"
+                return resp
+        except Exception as e:
+            print(f"Telegram streaming error: {e}")
+            abort(500, description="Telegram download failed. Make sure the bot is in the channel.")
+
+    # STANDARD HTTP LINK HANDLING
     fwd = {"User-Agent": "Mozilla/5.0"}
     rng = request.headers.get("Range")
     if rng:
