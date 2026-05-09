@@ -2092,34 +2092,18 @@ async def deliver_file(
         )
         return
 
-    if "/cdl/" in web_url:
-        stream_url = web_url.replace("/cdl/", "/cdlfile/")
-    else:
-        stream_url = web_url.replace("/d/", "/file/")
-
-    # Extract title from caption loosely
-    try:
-        title = caption.split("<b>")[1].split("</b>")[0]
-    except Exception:
-        title = "Now Playing"
-
-    player_url = f"{WEB_BASE}/player?u={aiohttp.helpers.quote(stream_url, safe='')}&t={aiohttp.helpers.quote(title, safe='')}"
-
     text = (
         f"{caption}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🌐 <b>Tap below to stream or download</b>\n"
-        f"<i>A short wait is shown on the download page before it starts.</i>"
+        f"🌐 <b>Tap below to open the download page</b>\n"
+        f"<i>A short wait is shown on the page before your download starts.</i>"
     )
     await context.bot.send_message(
         chat_id=chat_id,
         text=text,
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("▶️ Stream (Web App)", web_app=WebAppInfo(url=player_url))],
-            [InlineKeyboardButton("🌐 Open Download Page", url=web_url)]
-        ])
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌐 Open Download Page", url=web_url)]])
     )
 
 

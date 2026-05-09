@@ -597,6 +597,18 @@ def download_page(token: str):
     )
 
 
+@app.route("/play/<token>")
+def play_page(token: str):
+    info = decode_dl_token(token)
+    if not info:
+        abort(404)
+    return render_template(
+        "player.html",
+        title=info.get("t") or info.get("n") or "Stream",
+        stream_url=url_for("download_stream", token=token)
+    )
+
+
 @app.route("/file/<token>")
 def download_stream(token: str):
     """Stream the file from the upstream CDN, or show a friendly error if unavailable."""
@@ -887,6 +899,18 @@ def custom_download_page(token: str):
         token=token,
         title=info.get("t") or "Download",
         quality=info.get("q") or "HD",
+    )
+
+
+@app.route("/cplay/<token>")
+def custom_play_page(token: str):
+    info = decode_custom_dl_token(token)
+    if not info:
+        abort(404)
+    return render_template(
+        "player.html",
+        title=info.get("t") or "Stream",
+        stream_url=url_for("custom_download_stream", token=token)
     )
 
 
