@@ -155,9 +155,26 @@ def _telegram_stream_route(url: str) -> Optional[str]:
     return url_for("telegram_stream", channel=chat_ref, message_id=message_id)
 
 
+def _custom_download_target(token: str, url: str) -> str:
+    # Keep Telegram-backed files on our proxy route so users download from the website,
+    # not from a raw t.me link, and so we can handle Telegram auth server-side.
+    if _parse_telegram_message_url(url):
+        return url_for("custom_download_stream", token=token)
+    return url
+
+
 def _stream_telegram_message(chat_ref: Any, message_id: int) -> Response:
     client = get_tg_app()
-    message = run_async(client.get_messages(chat_ref, message_id))
+    if isinstance(chat_ref, str) and not chat_ref.startswith("@"):
+        chat_ref = f"@{chat_ref}"
+
+    try:
+        chat = run_async(client.get_chat(chat_ref))
+        resolved_chat_ref: Any = getattr(chat, "id", chat_ref)
+    except Exception:
+        resolved_chat_ref = chat_ref
+
+    message = run_async(client.get_messages(resolved_chat_ref, message_id))
 
     if not message or not (message.document or message.video or message.audio):
         abort(404, description="No file found in this Telegram post.")
@@ -1109,7 +1126,7 @@ def custom_download_page(token: str):
         token=token,
         title=info.get("t") or "Download",
         quality=info.get("q") or "HD",
-        direct_url=_telegram_stream_route(info["u"]) or info["u"],
+        direct_url=_custom_download_target(token, info["u"]),
     )
 
 
@@ -1140,7 +1157,11 @@ def custom_download_stream(token: str):
             return _stream_telegram_message(*parsed)
         except Exception as e:
             print(f"Telegram streaming error: {e}")
-            abort(500, description="Telegram download failed. Make sure the bot is in the channel.")
+            return render_template(
+                "error.html",
+                code=503,
+                message="Telegram download failed. Add your bot to that channel and make sure it can access the post.",
+            ), 503
 
     # STANDARD HTTP LINK HANDLING
     fwd = {"User-Agent": "Mozilla/5.0"}
