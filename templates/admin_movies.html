@@ -63,11 +63,12 @@
         </td>
         <td>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <form method="post" action="/admin/movies/feature/{{ m['id'] }}" style="display:inline;">
+            <form method="post" action="/admin/movies/feature/{{ m['custom_id'] }}" style="display:inline;">
               <button class="btn btn-star btn-sm" title="Toggle featured">{% if m['is_featured'] %}Starred{% else %}Feature{% endif %}</button>
             </form>
-            <a href="/custom/{{ m['id'] }}" target="_blank" class="btn btn-ghost btn-sm" title="Preview movie page">Preview</a>
-            <form method="post" action="/admin/movies/delete/{{ m['id'] }}"
+            <a href="/admin/movies/edit/{{ m['custom_id'] }}" class="btn btn-ghost btn-sm">Edit</a>
+            <a href="/custom/{{ m['custom_id'] }}" target="_blank" class="btn btn-ghost btn-sm" title="Preview movie page">Preview</a>
+            <form method="post" action="/admin/movies/delete/{{ m['custom_id'] }}"
                   onsubmit="return confirm('Delete {{ m['title'] }}?')" style="display:inline;">
               <button class="btn btn-danger btn-sm">Delete</button>
             </form>

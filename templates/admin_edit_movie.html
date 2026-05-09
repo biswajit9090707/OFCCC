@@ -1,0 +1,193 @@
+{% extends "admin_base.html" %}
+{% block title %}Edit Movie{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Edit Movie</h1>
+  <p>Editing: <strong>{{ movie['title'] }}</strong> (ID #{{ movie['custom_id'] }})</p>
+</div>
+
+<div class="section">
+  <div class="section-title">Movie Details</div>
+  <div style="display:grid;grid-template-columns:140px 1fr;gap:20px;align-items:start;">
+    <div>
+      <div id="posterPreview" style="width:140px;aspect-ratio:2/3;border-radius:12px;background:var(--panel-2);border:2px dashed var(--line);display:flex;align-items:center;justify-content:center;font-size:18px;overflow:hidden;">
+        {% if movie['poster_url'] %}
+        <img src="{{ movie['poster_url'] }}" style="width:100%;height:100%;object-fit:cover;">
+        {% else %}
+        Poster
+        {% endif %}
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center;">Poster Preview</div>
+    </div>
+    <div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Title *</label>
+          <input type="text" id="f_title" value="{{ movie['title'] }}" placeholder="Movie or series title" required>
+        </div>
+        <div class="form-group">
+          <label>Year</label>
+          <input type="text" id="f_year" value="{{ movie['year'] }}" placeholder="2024">
+        </div>
+        <div class="form-group">
+          <label>Rating</label>
+          <input type="text" id="f_rating" value="{{ movie['rating'] if movie['rating'] is not none else '' }}" placeholder="7.5">
+        </div>
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Custom Movie ID</label>
+          <input type="text" value="{{ movie['custom_id'] }}" readonly style="background:rgba(255,255,255,.02);color:var(--muted);">
+        </div>
+        {% set genres_list = [] %}
+        {% if movie['genres'] %}
+          {% if movie['genres'] is string %}
+            {% set genres_list = movie['genres'] | from_json %}
+          {% else %}
+            {% set genres_list = movie['genres'] %}
+          {% endif %}
+        {% endif %}
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Genres (comma separated)</label>
+          <input type="text" id="f_genres" value="{{ genres_list | join(', ') }}" placeholder="Action, Drama, Sci-Fi">
+        </div>
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Plot / Overview</label>
+          <textarea id="f_overview" rows="3" style="resize:vertical;" placeholder="Short description of the movie...">{{ movie['overview'] }}</textarea>
+        </div>
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Poster URL</label>
+          <input type="url" id="f_poster" value="{{ movie['poster_url'] }}" placeholder="https://.../poster.jpg" oninput="updatePoster(this.value)">
+        </div>
+        <div class="form-group" style="grid-column:1/-1;">
+          <label>Backdrop URL <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+          <input type="url" id="f_backdrop" value="{{ movie['backdrop_url'] }}" placeholder="https://.../backdrop.jpg">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div class="section-title" style="margin-bottom:0;">Download Links</div>
+      <button class="btn btn-ghost btn-sm" onclick="addDlRow()">+ Add Link</button>
+    </div>
+    <div id="dlRows"></div>
+    <div style="font-size:12px;color:var(--muted);margin-top:8px;">Add direct download URLs such as Google Drive, Telegram, or file links.</div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:14px;margin-top:24px;padding-top:20px;border-top:1px solid var(--line);flex-wrap:wrap;">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+      <input type="checkbox" id="f_featured" {% if movie['is_featured'] %}checked{% endif %} style="width:auto;accent-color:var(--accent);"> Mark as Featured
+    </label>
+    <button class="btn btn-primary" onclick="updateMovie()" id="saveBtn">Update Movie</button>
+    <a href="/admin/movies" class="btn btn-ghost">Cancel</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updatePoster(url) {
+  const box = document.getElementById('posterPreview');
+  if (url) {
+    box.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.innerHTML='Poster'">`;
+  } else {
+    box.innerHTML = 'Poster';
+  }
+}
+
+let dlIdx = 0;
+function addDlRow(quality = '', size = '', url = '') {
+  const container = document.getElementById('dlRows');
+  const id = dlIdx++;
+  const row = document.createElement('div');
+  row.id = 'dlrow_' + id;
+  row.style.cssText = 'display:grid;grid-template-columns:130px 100px 1fr 36px;gap:8px;margin-bottom:8px;align-items:center;';
+  row.innerHTML = `
+    <input type="text" placeholder="Quality (1080p)" value="${quality}"
+      style="background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:8px;padding:9px 12px;color:var(--fg);font-size:13px;outline:none;">
+    <input type="text" placeholder="Size (2.1 GB)" value="${size}"
+      style="background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:8px;padding:9px 12px;color:var(--fg);font-size:13px;outline:none;">
+    <input type="url" placeholder="Direct download URL" value="${url}"
+      style="background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:8px;padding:9px 12px;color:var(--fg);font-size:13px;outline:none;">
+    <button type="button" onclick="document.getElementById('dlrow_${id}').remove()"
+      style="background:rgba(255,60,60,.15);border:1px solid rgba(255,60,60,.3);color:#ff6060;border-radius:8px;width:36px;height:36px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">X</button>`;
+  container.appendChild(row);
+}
+
+// Pre-fill download rows
+{% set dls = [] %}
+{% if movie['downloads'] %}
+  {% if movie['downloads'] is string %}
+    {% set dls = movie['downloads'] | from_json %}
+  {% else %}
+    {% set dls = movie['downloads'] %}
+  {% endif %}
+{% endif %}
+
+{% for d in dls %}
+addDlRow("{{ d['quality'] | e }}", "{{ d['size'] | e }}", "{{ d['url'] | e }}");
+{% endfor %}
+
+if (document.getElementById('dlRows').children.length === 0) {
+  addDlRow();
+}
+
+function getDlRows() {
+  const rows = document.querySelectorAll('[id^="dlrow_"]');
+  const out = [];
+  rows.forEach(row => {
+    const inputs = row.querySelectorAll('input[type="text"], input[type="url"]');
+    const quality = inputs[0]?.value.trim() || '';
+    const size = inputs[1]?.value.trim() || '';
+    const url = inputs[2]?.value.trim() || '';
+    if (url) out.push({ quality, size, url });
+  });
+  return out;
+}
+
+async function updateMovie() {
+  const title = document.getElementById('f_title').value.trim();
+  if (!title) {
+    showToast('Title is required.', 'err');
+    return;
+  }
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Updating...';
+
+  const payload = {
+    title,
+    year: document.getElementById('f_year').value.trim(),
+    rating: document.getElementById('f_rating').value.trim() || null,
+    overview: document.getElementById('f_overview').value.trim(),
+    genres: document.getElementById('f_genres').value.split(',').map(g => g.trim()).filter(Boolean),
+    poster_url: document.getElementById('f_poster').value.trim(),
+    backdrop_url: document.getElementById('f_backdrop').value.trim(),
+    is_featured: document.getElementById('f_featured').checked,
+    downloads: getDlRows(),
+  };
+
+  try {
+    const res = await fetch('/admin/movies/edit/{{ movie["custom_id"] }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('Successfully updated "' + data.title + '".', 'ok');
+      window.setTimeout(() => window.location.href = '/admin/movies', 1000);
+    } else {
+      showToast('Error: ' + (data.error || 'Unknown error'), 'err');
+      btn.disabled = false;
+      btn.textContent = 'Update Movie';
+    }
+  } catch (e) {
+    showToast('Network error.', 'err');
+    btn.disabled = false;
+    btn.textContent = 'Update Movie';
+  }
+}
+</script>
+{% endblock %}

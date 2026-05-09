@@ -41,6 +41,16 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
 app.secret_key = os.getenv("SESSION_SECRET") or "ofcmovies@secret#key!2024$dl"
 
+
+@app.template_filter('from_json')
+def from_json_filter(s):
+    if not s: return []
+    if isinstance(s, (list, dict)): return s
+    try:
+        return json.loads(s)
+    except:
+        return []
+
 # ─────────────── signed download token (hides upstream URL) ───────────────
 _SECRET = os.getenv("SESSION_SECRET") or "ofcmovies@secret#key!2024$dl"
 _dl_signer = URLSafeSerializer(_SECRET, salt="hubstream-dl-v1")
@@ -788,6 +798,66 @@ def admin_add_movie():
             return jsonify({"error": str(e)}), 500
     return render_template(
         "admin_add_movie.html",
+        omdb_configured=bool(_configured_omdb_api_key()),
+    )
+
+
+@app.route("/admin/movies/edit/<int:mid>", methods=["GET", "POST"])
+@_admin_required
+def admin_edit_movie(mid: int):
+    doc = custom_movies_col.find_one({"custom_id": mid})
+    if not doc:
+        abort(404)
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        title    = (data.get("title") or "").strip()
+        if not title:
+            return jsonify({"error": "Title is required"}), 400
+        year     = str(data.get("year") or "")
+        rating_raw = data.get("rating")
+        rating_text = "" if rating_raw is None else str(rating_raw).strip()
+        try:
+            rating = float(rating_text) if rating_text else None
+        except (TypeError, ValueError):
+            return jsonify({"error": "Rating must be a number"}), 400
+        overview = data.get("overview") or ""
+        genres   = json.dumps(data.get("genres") or [])
+        poster   = data.get("poster_url") or ""
+        backdrop = data.get("backdrop_url") or ""
+        is_feat  = 1 if data.get("is_featured") else 0
+        raw_dls  = data.get("downloads") or []
+        clean_downloads = []
+        for d in raw_dls:
+            url = (d.get("url") or "").strip()
+            if not url:
+                continue
+            clean_downloads.append({
+                "quality": (d.get("quality") or "").strip(),
+                "size": (d.get("size") or "").strip(),
+                "url": url,
+            })
+        downloads = json.dumps(clean_downloads)
+        try:
+            custom_movies_col.update_one(
+                {"custom_id": mid},
+                {"$set": {
+                    "title": title,
+                    "year": year,
+                    "rating": rating,
+                    "overview": overview,
+                    "poster_url": poster,
+                    "backdrop_url": backdrop,
+                    "genres": genres,
+                    "is_featured": is_feat,
+                    "downloads": downloads
+                }}
+            )
+            return jsonify({"ok": True, "title": title})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    return render_template(
+        "admin_edit_movie.html",
+        movie=doc,
         omdb_configured=bool(_configured_omdb_api_key()),
     )
 
