@@ -177,7 +177,7 @@ def _custom_download_target(token: str, url: str) -> str:
     return url
 
 
-def _stream_telegram_message(chat_ref: Any, message_id: int) -> Response:
+def _stream_telegram_message(chat_ref: Any, message_id: int, as_attachment: bool = True) -> Response:
     client = get_tg_app()
     if isinstance(chat_ref, str) and not chat_ref.startswith("@"):
         chat_ref = f"@{chat_ref}"
@@ -212,9 +212,61 @@ def _stream_telegram_message(chat_ref: Any, message_id: int) -> Response:
             loop.close()
 
     resp = Response(stream_with_context(stream_generator()), mimetype=mime)
-    resp.headers["Content-Disposition"] = f'attachment; filename="{file_name}"'
+    disposition = "attachment" if as_attachment else "inline"
+    resp.headers["Content-Disposition"] = f'{disposition}; filename="{file_name}"'
     if file_size:
         resp.headers["Content-Length"] = file_size
+    resp.headers["Cache-Control"] = "private, no-store"
+    return resp
+
+
+def _proxy_http_stream(url: str, download_name: str, as_attachment: bool = True) -> Response:
+    fwd_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    rng = request.headers.get("Range")
+    if rng:
+        fwd_headers["Range"] = rng
+
+    try:
+        upstream = requests.get(
+            url,
+            headers=fwd_headers,
+            stream=True,
+            timeout=20,
+            allow_redirects=True,
+        )
+    except Exception as e:
+        app.logger.warning("Upstream fetch failed for %s: %s", url, e)
+        return render_template(
+            "error.html",
+            code=503,
+            message="Stream server is unreachable. Please try again later.",
+        ), 503
+
+    if upstream.status_code >= 400:
+        upstream.close()
+        return render_template(
+            "error.html",
+            code=503,
+            message="This file is temporarily unavailable on the stream server.",
+        ), 503
+
+    def generate():
+        try:
+            for chunk in upstream.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
+
+    resp = Response(stream_with_context(generate()), status=upstream.status_code)
+    for h in ("content-type", "content-length", "accept-ranges", "content-range"):
+        v = upstream.headers.get(h)
+        if v:
+            resp.headers[h.title()] = v
+    if "Content-Type" not in resp.headers:
+        resp.headers["Content-Type"] = "application/octet-stream"
+    disposition = "attachment" if as_attachment else "inline"
+    resp.headers["Content-Disposition"] = f'{disposition}; filename="{download_name}"'
     resp.headers["Cache-Control"] = "private, no-store"
     return resp
 
@@ -765,7 +817,7 @@ def play_page(token: str):
     return render_template(
         "player.html",
         title=info.get("t") or info.get("n") or "Stream",
-        stream_url=url_for("download_stream", token=token)
+        stream_url=url_for("play_stream", token=token)
     )
 
 
@@ -778,51 +830,29 @@ def generic_player():
     return render_template("player.html", title=t, stream_url=u)
 
 
+@app.route("/stream/<token>")
+def play_stream(token: str):
+    info = decode_dl_token(token)
+    if not info:
+        abort(404)
+    upstream_url = f"{DL_BASE}/{info['i']}/{info['n']}"
+    result = _proxy_http_stream(upstream_url, info["n"], as_attachment=False)
+    if isinstance(result, tuple):
+        return result
+    return result
+
+
 @app.route("/file/<token>")
 def download_stream(token: str):
     """Stream the file from the upstream CDN, or show a friendly error if unavailable."""
     info = decode_dl_token(token)
     if not info:
         abort(404)
-
     upstream_url = f"{DL_BASE}/{info['i']}/{info['n']}"
-    fwd_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    rng = request.headers.get("Range")
-    if rng:
-        fwd_headers["Range"] = rng
-
-    try:
-        upstream = requests.get(upstream_url, headers=fwd_headers, stream=True,
-                                timeout=20, allow_redirects=True)
-    except Exception as e:
-        app.logger.warning("CDN fetch failed: %s", e)
-        return render_template("error.html", code=503,
-                               message="Download server is unreachable. Please try again later."), 503
-
-    if upstream.status_code >= 400:
-        upstream.close()
-        return render_template("error.html", code=503,
-                               message="This file is temporarily unavailable on the download server. "
-                                       "Please try a different quality or check back later."), 503
-
-    def generate():
-        try:
-            for chunk in upstream.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    yield chunk
-        finally:
-            upstream.close()
-
-    resp = Response(stream_with_context(generate()), status=upstream.status_code)
-    for h in ("content-type", "content-length", "accept-ranges", "content-range"):
-        v = upstream.headers.get(h)
-        if v:
-            resp.headers[h.title()] = v
-    if "Content-Type" not in resp.headers:
-        resp.headers["Content-Type"] = "application/octet-stream"
-    resp.headers["Content-Disposition"] = f'attachment; filename="{info["n"]}"'
-    resp.headers["Cache-Control"] = "private, no-store"
-    return resp
+    result = _proxy_http_stream(upstream_url, info["n"], as_attachment=True)
+    if isinstance(result, tuple):
+        return result
+    return result
 
 
 @app.route("/tstream/<channel>/<int:message_id>")
@@ -1152,8 +1182,40 @@ def custom_play_page(token: str):
     return render_template(
         "player.html",
         title=info.get("t") or "Stream",
-        stream_url=url_for("custom_download_stream", token=token)
+        stream_url=url_for("custom_play_stream", token=token)
     )
+
+
+@app.route("/cstream/<token>")
+def custom_play_stream(token: str):
+    info = decode_custom_dl_token(token)
+    if not info:
+        abort(404)
+
+    url = info["u"].strip()
+    parsed = _parse_telegram_message_url(url)
+    if parsed:
+        try:
+            return _stream_telegram_message(*parsed, as_attachment=False)
+        except Exception as e:
+            print(f"Telegram streaming error: {e}")
+            if TG_SESSION_STRING:
+                message = (
+                    "Telegram stream failed. Make sure the Telegram account behind "
+                    "TELEGRAM_SESSION_STRING can access that post."
+                )
+            else:
+                message = (
+                    "Telegram stream failed. Add your bot to that channel, or configure "
+                    "TELEGRAM_SESSION_STRING so the website can play public channel files directly."
+                )
+            return render_template("error.html", code=503, message=message), 503
+
+    fname = url.split("/")[-1].split("?")[0] or "stream"
+    result = _proxy_http_stream(url, fname, as_attachment=False)
+    if isinstance(result, tuple):
+        return result
+    return result
 
 
 @app.route("/cdlfile/<token>")
@@ -1168,7 +1230,7 @@ def custom_download_stream(token: str):
     parsed = _parse_telegram_message_url(url)
     if parsed:
         try:
-            return _stream_telegram_message(*parsed)
+            return _stream_telegram_message(*parsed, as_attachment=True)
         except Exception as e:
             print(f"Telegram streaming error: {e}")
             if TG_SESSION_STRING:
@@ -1187,35 +1249,11 @@ def custom_download_stream(token: str):
                 message=message,
             ), 503
 
-    # STANDARD HTTP LINK HANDLING
-    fwd = {"User-Agent": "Mozilla/5.0"}
-    rng = request.headers.get("Range")
-    if rng:
-        fwd["Range"] = rng
-    try:
-        upstream = requests.get(url, headers=fwd, stream=True, timeout=20, allow_redirects=True)
-    except Exception:
-        abort(503)
-    if upstream.status_code >= 400:
-        upstream.close()
-        abort(503)
-    def _gen():
-        try:
-            for chunk in upstream.iter_content(64 * 1024):
-                if chunk:
-                    yield chunk
-        finally:
-            upstream.close()
-    resp = Response(stream_with_context(_gen()), status=upstream.status_code)
-    for h in ("content-type", "content-length", "accept-ranges", "content-range"):
-        v = upstream.headers.get(h)
-        if v:
-            resp.headers[h.title()] = v
     fname = url.split("/")[-1].split("?")[0] or "download"
-    resp.headers.setdefault("Content-Type", "application/octet-stream")
-    resp.headers["Content-Disposition"] = f'attachment; filename="{fname}"'
-    resp.headers["Cache-Control"] = "private, no-store"
-    return resp
+    result = _proxy_http_stream(url, fname, as_attachment=True)
+    if isinstance(result, tuple):
+        return result
+    return result
 
 
 # ─────────────────────── SETTINGS ROUTES ──────────────────────
