@@ -311,6 +311,8 @@ img { display: block; max-width: 100%; }
   padding: 12px 14px; border-radius: 12px;
   background: var(--panel-2); border: 1px solid var(--line);
 }
+.dl-copy { min-width: 0; }
+.dl-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .dl-q { font-weight: 700; }
 .dl-s { color: var(--muted); font-size: 12px; margin-top: 2px; }
 
@@ -336,6 +338,7 @@ img { display: block; max-width: 100%; }
 .ep-num { font-weight: 700; color: var(--accent); width: 36px; }
 .ep-title { font-weight: 600; }
 .ep-dls { display: flex; flex-wrap: wrap; gap: 6px; }
+.ep-dl-item { display: flex; }
 .pill {
   display: inline-block; padding: 7px 12px; border-radius: 999px;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
@@ -356,8 +359,66 @@ img { display: block; max-width: 100%; }
   .brand-name { display: none; }
   .container { padding: 18px 14px 48px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }
-  .detail-inner { grid-template-columns: 120px 1fr; gap: 16px; padding: 18px; }
-  .detail-poster img, .detail-poster .poster-fallback { width: 120px; }
+  .detail { border-radius: 18px; }
+  .detail-inner {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding: 18px 16px 20px;
+  }
+  .detail-poster {
+    display: flex;
+    justify-content: center;
+  }
+  .detail-poster img, .detail-poster .poster-fallback {
+    width: min(56vw, 220px);
+  }
+  .detail-body h1 {
+    margin: 0 0 10px;
+    font-size: 28px;
+    line-height: 1.08;
+  }
+  .detail-meta {
+    gap: 8px 10px;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+  .chips { margin-bottom: 14px; }
+  .chip { font-size: 11px; padding: 4px 9px; }
+  .overview {
+    font-size: 14px;
+    line-height: 1.55;
+    margin-bottom: 16px;
+  }
+  .dl-head {
+    margin-top: 18px;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .dl-list li {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px 12px;
+  }
+  .dl-actions .btn {
+    width: 100%;
+  }
+  .ep {
+    padding: 12px;
+  }
+  .ep-head {
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .ep-num {
+    width: auto;
+    min-width: 34px;
+  }
+  .pill {
+    width: 100%;
+    text-align: center;
+    padding: 10px 14px;
+  }
   .hero { padding: 36px 16px; }
   .hero h1 { font-size: 26px; }
   .live-search-box {

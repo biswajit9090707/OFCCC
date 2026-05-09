@@ -1,79 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Stream · {{ title }} · {{ site_name }}{% endblock %}
+{% block title %}Unavailable · {{ site_name }}{% endblock %}
 {% block content %}
-<style>
-  .player-container {
-    width: 100%;
-    max-width: 900px;
-    margin: 40px auto;
-    background: #000;
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 24px 60px rgba(0,0,0,.5);
-    border: 1px solid var(--line);
-    aspect-ratio: 16 / 9;
-  }
-  video {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    background: #000;
-  }
-  .player-header {
-    max-width: 900px;
-    margin: 0 auto 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-  }
-  .player-title {
-    font-size: 20px;
-    font-weight: 700;
-    margin: 0;
-  }
-  .player-note {
-    max-width: 900px;
-    margin: 14px auto 0;
-    color: var(--muted);
-    font-size: 14px;
-  }
-  .player-note a {
-    color: var(--accent);
-    text-decoration: none;
-  }
-</style>
-
-<div class="player-header">
-  <h1 class="player-title">{{ title }}</h1>
-  <a class="dl-back" href="javascript:history.back()" style="margin:0;">← Back</a>
-</div>
-
-<div class="player-container">
-  <video id="sitePlayer" controls playsinline preload="metadata" crossorigin="anonymous" controlsList="nodownload" oncontextmenu="return false;" src="{{ stream_url }}">
-    Your browser does not support HTML5 video.
-  </video>
-</div>
-<p class="player-note" id="playerNote" hidden>
-  This file could not start in the browser player. It may be an unsupported video format for your browser.
-  <a href="{{ stream_url }}">Open the stream directly</a>
-</p>
-<script>
-(() => {
-  const video = document.getElementById('sitePlayer');
-  const note = document.getElementById('playerNote');
-  if (!video) return;
-
-  const showNote = () => {
-    if (note) note.hidden = false;
-  };
-
-  video.addEventListener('error', showNote);
-  video.addEventListener('loadedmetadata', () => {
-    const playPromise = video.play();
-    if (playPromise && typeof playPromise.catch === 'function') {
-      playPromise.catch(() => {});
-    }
-  }, { once: true });
-})();
-</script>
+<section class="empty">
+  <h1>Streaming Removed</h1>
+  <p>Browser streaming is no longer available on this website. Please use the download button on the title page.</p>
+  <a class="btn" href="{{ url_for('home') }}">Back Home</a>
+</section>
 {% endblock %}

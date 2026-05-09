@@ -831,35 +831,17 @@ def download_page(token: str):
 
 @app.route("/play/<token>")
 def play_page(token: str):
-    info = decode_dl_token(token)
-    if not info:
-        abort(404)
-    return render_template(
-        "player.html",
-        title=info.get("t") or info.get("n") or "Stream",
-        stream_url=url_for("play_stream", token=token)
-    )
+    return render_template("player.html")
 
 
 @app.route("/player")
 def generic_player():
-    u = request.args.get("u", "").strip()
-    t = request.args.get("t", "Now Playing").strip()
-    if not u:
-        abort(404)
-    return render_template("player.html", title=t, stream_url=u)
+    return render_template("player.html")
 
 
 @app.route("/stream/<token>")
 def play_stream(token: str):
-    info = decode_dl_token(token)
-    if not info:
-        abort(404)
-    upstream_url = f"{DL_BASE}/{info['i']}/{info['n']}"
-    result = _proxy_http_stream(upstream_url, info["n"], as_attachment=False)
-    if isinstance(result, tuple):
-        return result
-    return result
+    abort(404)
 
 
 @app.route("/file/<token>")
@@ -877,14 +859,12 @@ def download_stream(token: str):
 
 @app.route("/tstream/<channel>/<int:message_id>")
 def telegram_stream(channel: str, message_id: int):
-    return _stream_telegram_message(channel, message_id)
+    abort(404)
 
 
 @app.route("/tstream/c/<chat_id>/<int:message_id>")
 def telegram_private_stream(chat_id: str, message_id: int):
-    if not chat_id.isdigit():
-        abort(404)
-    return _stream_telegram_message(int(f"-100{chat_id}"), message_id)
+    abort(404)
 
 
 @app.route("/healthz")
@@ -1196,46 +1176,12 @@ def custom_download_page(token: str):
 
 @app.route("/cplay/<token>")
 def custom_play_page(token: str):
-    info = decode_custom_dl_token(token)
-    if not info:
-        abort(404)
-    return render_template(
-        "player.html",
-        title=info.get("t") or "Stream",
-        stream_url=url_for("custom_play_stream", token=token)
-    )
+    return render_template("player.html")
 
 
 @app.route("/cstream/<token>")
 def custom_play_stream(token: str):
-    info = decode_custom_dl_token(token)
-    if not info:
-        abort(404)
-
-    url = info["u"].strip()
-    parsed = _parse_telegram_message_url(url)
-    if parsed:
-        try:
-            return _stream_telegram_message(*parsed, as_attachment=False)
-        except Exception as e:
-            print(f"Telegram streaming error: {e}")
-            if TG_SESSION_STRING:
-                message = (
-                    "Telegram stream failed. Make sure the Telegram account behind "
-                    "TELEGRAM_SESSION_STRING can access that post."
-                )
-            else:
-                message = (
-                    "Telegram stream failed. Add your bot to that channel, or configure "
-                    "TELEGRAM_SESSION_STRING so the website can play public channel files directly."
-                )
-            return render_template("error.html", code=503, message=message), 503
-
-    fname = url.split("/")[-1].split("?")[0] or "stream"
-    result = _proxy_http_stream(url, fname, as_attachment=False)
-    if isinstance(result, tuple):
-        return result
-    return result
+    abort(404)
 
 
 @app.route("/cdlfile/<token>")

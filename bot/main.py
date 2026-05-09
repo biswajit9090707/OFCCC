@@ -1125,19 +1125,7 @@ PLAYER_HTML = """<!doctype html>
 
 
 async def route_player(req: web.Request) -> web.Response:
-    title = req.query.get("t", "Now Playing").strip() or "Now Playing"
-    quality = req.query.get("q", "").strip()
-    meta = quality if quality else ""
-    body = (
-        PLAYER_HTML
-        .replace("__TITLE__", html.escape(title))
-        .replace("__META__", html.escape(meta))
-    )
-    resp = web.Response(text=body, content_type="text/html")
-    # Telegram Web Apps must be embeddable; ensure no restrictive headers.
-    resp.headers["Cache-Control"] = "no-store"
-    resp.headers["Referrer-Policy"] = "no-referrer"
-    return resp
+    return web.Response(status=404, text="streaming removed")
 
 
 def build_web_app(application=None) -> web.Application:
@@ -1281,12 +1269,9 @@ def _dl_card_line(url: str) -> str:
     return "✅ <b>Download ready — tap the button below</b>"
 
 
-def _dl_keyboard(url: str, stream_url: str, title: str) -> InlineKeyboardMarkup:
-    """Always point the user at the web /d/<token> download page (ad countdown).
-    url is already the signed /d/<token> URL produced by make_download_url."""
-    player_url = f"{WEB_BASE}/player?u={aiohttp.helpers.quote(stream_url, safe='')}&t={aiohttp.helpers.quote(title, safe='')}"
+def _dl_keyboard(url: str) -> InlineKeyboardMarkup:
+    """Always point the user at the web /d/<token> download page (ad countdown)."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ Stream (Browser)", url=player_url)],
         [InlineKeyboardButton("🌐 Open Download Page", url=url)]
     ])
 
@@ -1332,8 +1317,7 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        stream_url = url.replace("/d/", "/stream/")
-        keyboard = _dl_keyboard(url, stream_url, title)
+        keyboard = _dl_keyboard(url)
     elif kind == "cm":
         row = await fetch_custom_movie(custom_id)
         if not row:
@@ -1369,8 +1353,7 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        stream_url = url.replace("/cdl/", "/cstream/")
-        keyboard = _dl_keyboard(url, stream_url, title)
+        keyboard = _dl_keyboard(url)
     elif kind == "ep":
         season_no = int(payload.get("season") or 0)
         episode_no = int(payload.get("episode") or 0)
@@ -1414,8 +1397,7 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        stream_url = url.replace("/d/", "/stream/")
-        keyboard = _dl_keyboard(url, stream_url, f"{title} S{season_no:02d} E{episode_no:02d}")
+        keyboard = _dl_keyboard(url)
     else:
         await context.bot.send_message(
             chat_id=chat_id, text="⚠️ Unknown download request."
@@ -2099,23 +2081,10 @@ async def deliver_file(
         )
         return
 
-    if "/cdl/" in web_url:
-        stream_url = web_url.replace("/cdl/", "/cstream/")
-    else:
-        stream_url = web_url.replace("/d/", "/stream/")
-
-    # Extract title from caption loosely
-    try:
-        title = caption.split("<b>")[1].split("</b>")[0]
-    except Exception:
-        title = "Now Playing"
-
-    player_url = f"{WEB_BASE}/player?u={aiohttp.helpers.quote(stream_url, safe='')}&t={aiohttp.helpers.quote(title, safe='')}"
-
     text = (
         f"{caption}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🌐 <b>Tap below to stream or download</b>\n"
+        f"🌐 <b>Tap below to open the download page</b>\n"
         f"<i>A short wait is shown on the download page before it starts.</i>"
     )
     await context.bot.send_message(
@@ -2124,7 +2093,6 @@ async def deliver_file(
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("▶️ Stream (Browser)", url=player_url)],
             [InlineKeyboardButton("🌐 Open Download Page", url=web_url)]
         ])
     )

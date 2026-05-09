@@ -31,12 +31,11 @@
         <ul class="dl-list">
           {% for d in item.downloads %}
             <li>
-              <div>
+              <div class="dl-copy">
                 <div class="dl-q">{{ d.quality }}</div>
                 {% if d.size %}<div class="dl-s">{{ d.size }}</div>{% endif %}
               </div>
-              <div style="display:flex; gap:8px;">
-                <a class="btn" href="{{ d.url.replace('/d/', '/play/').replace('/cdl/', '/cplay/') }}" style="background:var(--panel-2); border:1px solid var(--line); color:var(--fg);">Stream</a>
+              <div class="dl-actions">
                 <a class="btn" href="{{ d.url }}" rel="noopener">Download</a>
               </div>
             </li>

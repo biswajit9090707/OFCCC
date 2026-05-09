@@ -106,22 +106,14 @@
       </div>
     </div>
 
-    <!-- Download & Stream Buttons (shown after countdown) -->
+    <!-- Download Button (shown after countdown) -->
     <div class="dl-cta-wrap" id="dlWrap">
-      <div style="display:flex; gap:12px; width:100%; justify-content:center; flex-wrap:wrap;">
-        <a class="dl-cta" href="{{ direct_url }}" id="dlBtn" rel="noopener">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/>
-          </svg>
-          <span>Download</span>
-        </a>
-        <a class="dl-cta" href="{{ url_for('play_page', token=token) }}" style="background:var(--panel-2); border:1px solid var(--line); box-shadow:none;">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m5 3 14 9-14 9V3z"/>
-          </svg>
-          <span>Stream Now</span>
-        </a>
-      </div>
+      <a class="dl-cta" href="{{ direct_url }}" id="dlBtn" rel="noopener">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/>
+        </svg>
+        <span>Download</span>
+      </a>
       <p class="dl-note muted">
         Your download will start through {{ site_name }}. Keep this tab open until the file finishes saving.
       </p>
