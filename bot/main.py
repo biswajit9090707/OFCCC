@@ -15,8 +15,8 @@ import json
 import logging
 import os
 import secrets
-import sqlite3
 import time
+from pymongo import MongoClient
 from collections import OrderedDict, defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -54,7 +54,7 @@ def _default_web_base() -> str:
     explicit = os.getenv("WEB_BASE", "").strip().rstrip("/")
     if explicit:
         return explicit
-    return "https://ofc-nox1.onrender.com"
+    return "https://ofccc.onrender.com"
 
 
 WEB_BASE = _default_web_base()
@@ -144,10 +144,11 @@ RESULTS_PER_CATEGORY = 5
 TG_POOL_SIZE = 256
 TG_CONCURRENT_UPDATES = 256
 TMDB_IMG_BASE = "https://image.tmdb.org/t/p/w500"
-CUSTOM_DB_PATH = os.getenv(
-    "CUSTOM_DB_PATH",
-    os.path.join(os.path.dirname(__file__), "..", "web", "custom_movies.db"),
-)
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://xamicc222_db_user:LkOliSVjkBDGyYFT@cluster0.trwwl0v.mongodb.net/?appName=Cluster0")
+mongo_client = MongoClient(MONGO_URI)
+db = mongo_client["hubstream"]
+custom_movies_col = db["custom_movies"]
+
 RECENT_QUERIES_MAX = 2000
 SEARCH_CTX_TTL = 1800  # 30 min
 
@@ -778,26 +779,7 @@ async def fetch_details(tmdb_id: int) -> Dict[str, Any]:
     return await http_client.get_json(url, ttl=CACHE_TTL_DETAIL) or {}
 
 
-def _custom_db_query_all(query: str, params: Tuple[Any, ...]) -> List[sqlite3.Row]:
-    conn = sqlite3.connect(CUSTOM_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        return conn.execute(query, params).fetchall()
-    finally:
-        conn.close()
-
-
-def _custom_db_query_one(query: str, params: Tuple[Any, ...]) -> Optional[sqlite3.Row]:
-    conn = sqlite3.connect(CUSTOM_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        return conn.execute(query, params).fetchone()
-    finally:
-        conn.close()
-
-
-def _build_custom_search_entry(row: sqlite3.Row) -> Dict[str, Any]:
-    movie = dict(row)
+def _build_custom_search_entry(movie: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "custom_id": movie.get("custom_id"),
         "title": movie.get("title"),
@@ -826,18 +808,19 @@ async def search_web_site(query: str) -> List[Dict[str, Any]]:
 
 
 async def search_custom_movies(query: str) -> List[Dict[str, Any]]:
-    if os.path.exists(CUSTOM_DB_PATH):
-        like = f"%{query}%"
-        rows = await asyncio.to_thread(
-            _custom_db_query_all,
-            """
-            SELECT * FROM custom_movies
-            WHERE title LIKE ? OR CAST(custom_id AS TEXT) LIKE ?
-            ORDER BY is_featured DESC, added_at DESC
-            """,
-            (like, like),
-        )
-        return [_build_custom_search_entry(row) for row in rows]
+    try:
+        q = {"title": {"$regex": query, "$options": "i"}}
+        if query.isdigit():
+            q = {"$or": [q, {"custom_id": int(query)}]}
+        
+        cursor = custom_movies_col.find(q).sort([("is_featured", -1), ("added_at", -1)])
+        # we still run this in an executor to avoid blocking the loop heavily, though motor is better
+        # but pymongo is synchronous, so we use to_thread
+        docs = await asyncio.to_thread(lambda: list(cursor))
+        if docs:
+            return [_build_custom_search_entry(doc) for doc in docs]
+    except Exception:
+        pass
 
     results = await search_web_site(query)
     out: List[Dict[str, Any]] = []
@@ -856,18 +839,21 @@ async def search_custom_movies(query: str) -> List[Dict[str, Any]]:
     return out
 
 
-async def fetch_custom_movie(custom_id: int) -> Optional[sqlite3.Row]:
+async def fetch_custom_movie(custom_id: int) -> Optional[Dict[str, Any]]:
     return await asyncio.to_thread(
-        _custom_db_query_one,
-        "SELECT * FROM custom_movies WHERE custom_id=?",
-        (custom_id,),
+        lambda: custom_movies_col.find_one({"custom_id": custom_id})
     )
 
 
-def build_custom_movie_payload(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
-    movie = dict(row)
+def build_custom_movie_payload(movie: Dict[str, Any]) -> Dict[str, Any]:
     downloads = []
-    for d in json.loads(movie.get("downloads") or "[]"):
+    raw_dls = movie.get("downloads")
+    if isinstance(raw_dls, str):
+        try:
+            raw_dls = json.loads(raw_dls)
+        except Exception:
+            raw_dls = []
+    for d in (raw_dls or []):
         source_url = (d.get("url") or "").strip()
         if not source_url:
             continue

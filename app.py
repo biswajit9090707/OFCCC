@@ -9,9 +9,9 @@ from __future__ import annotations
 import functools
 import json
 import os
-import sqlite3
 import time
 from typing import Any, Dict, List, Optional
+from pymongo import MongoClient
 
 import requests
 from flask import (
@@ -61,85 +61,30 @@ def decode_custom_dl_token(token: str) -> Optional[Dict[str, Any]]:
 # ─────────────────────── ADMIN CONFIG ──────────────────────────
 ADMIN_PASSWORD  = os.getenv("ADMIN_PASSWORD", "admin@hubstream2024")
 OMDB_API_KEY    = os.getenv("OMDB_API_KEY", "")          # get free key at omdbapi.com
-CUSTOM_DB_PATH  = os.path.join(os.path.dirname(__file__), "custom_movies.db")
 BOT_STATS_PATH  = os.getenv(
     "BOT_STATS_DB",
     os.path.join(os.path.dirname(__file__), "..", "bot", "stats.db"),
 )
 
-
-def _init_custom_db() -> None:
-    conn = sqlite3.connect(CUSTOM_DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS custom_movies (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            custom_id    INTEGER UNIQUE,
-            tmdb_id      INTEGER UNIQUE,
-            title        TEXT NOT NULL,
-            year         TEXT,
-            rating       REAL,
-            overview     TEXT,
-            poster_url   TEXT,
-            backdrop_url TEXT,
-            genres       TEXT,
-            is_featured  INTEGER DEFAULT 0,
-            added_at     INTEGER NOT NULL
-        )
-    """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS web_stats (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_type TEXT NOT NULL,
-            path       TEXT,
-            ts         INTEGER NOT NULL
-        )
-    """)
-    c.execute("CREATE INDEX IF NOT EXISTS idx_ws_ts ON web_stats(ts)")
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key   TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
-    conn.commit()
-    # Migration: add downloads column if not yet present
-    try:
-        conn.execute("ALTER TABLE custom_movies ADD COLUMN downloads TEXT DEFAULT '[]'")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # column already exists
-    try:
-        conn.execute("ALTER TABLE custom_movies ADD COLUMN custom_id INTEGER")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # column already exists
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_movies_custom_id ON custom_movies(custom_id)"
-    )
-    conn.commit()
-    conn.close()
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://xamicc222_db_user:LkOliSVjkBDGyYFT@cluster0.trwwl0v.mongodb.net/?appName=Cluster0")
+mongo_client = MongoClient(MONGO_URI)
+db = mongo_client["hubstream"]
+custom_movies_col = db["custom_movies"]
+web_stats_col = db["web_stats"]
+settings_col = db["settings"]
 
 
 def _get_setting(key: str, default: str = "") -> str:
     try:
-        conn = _custom_db()
-        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-        conn.close()
-        return row[0] if row else default
+        doc = settings_col.find_one({"_id": key})
+        return doc["value"] if doc else default
     except Exception:
         return default
 
 
 def _set_setting(key: str, value: str) -> None:
     try:
-        conn = _custom_db()
-        conn.execute(
-            "INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, value),
-        )
-        conn.commit()
-        conn.close()
+        settings_col.update_one({"_id": key}, {"$set": {"value": value}}, upsert=True)
     except Exception:
         pass
 
@@ -160,38 +105,6 @@ def _normalize_positive_int(value: Any) -> Optional[int]:
     return num if num > 0 else None
 
 
-def _ensure_custom_movie_ids() -> None:
-    conn = sqlite3.connect(CUSTOM_DB_PATH)
-    try:
-        rows = conn.execute("SELECT id, custom_id FROM custom_movies ORDER BY id ASC").fetchall()
-        used_ids = {
-            cid for _, custom_id in rows
-            if (cid := _normalize_positive_int(custom_id)) is not None
-        }
-        next_id = max([1999, *used_ids]) + 1
-        updated = False
-        for row_id, custom_id in rows:
-            if _normalize_positive_int(custom_id) is not None:
-                continue
-            while next_id in used_ids:
-                next_id += 1
-            conn.execute(
-                "UPDATE custom_movies SET custom_id=? WHERE id=?",
-                (next_id, row_id),
-            )
-            used_ids.add(next_id)
-            next_id += 1
-            updated = True
-        if updated:
-            conn.commit()
-    finally:
-        conn.close()
-
-
-_init_custom_db()
-_ensure_custom_movie_ids()
-
-
 def _configured_admin_password() -> str:
     return _get_setting("admin_password") or ADMIN_PASSWORD
 
@@ -200,21 +113,13 @@ def _configured_omdb_api_key() -> str:
     return _get_setting("omdb_api_key") or OMDB_API_KEY
 
 
-def _custom_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(CUSTOM_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def _track_web(event_type: str, path: str = "") -> None:
     try:
-        conn = sqlite3.connect(CUSTOM_DB_PATH)
-        conn.execute(
-            "INSERT INTO web_stats(event_type, path, ts) VALUES(?,?,?)",
-            (event_type, path[:200], int(time.time())),
-        )
-        conn.commit()
-        conn.close()
+        web_stats_col.insert_one({
+            "event_type": event_type,
+            "path": path[:200],
+            "ts": int(time.time())
+        })
     except Exception:
         pass
 
@@ -248,21 +153,18 @@ def _bot_stats() -> Dict[str, Any]:
 def _web_stats() -> Dict[str, Any]:
     now = int(time.time())
     try:
-        conn = sqlite3.connect(CUSTOM_DB_PATH)
-        def _s(q, *a):
-            r = conn.execute(q, a).fetchone()
-            return int(r[0] or 0) if r else 0
-        result = {
-            "views_today":     _s("SELECT COUNT(*) FROM web_stats WHERE event_type='view' AND ts>=?", now-86400),
-            "views_week":      _s("SELECT COUNT(*) FROM web_stats WHERE event_type='view' AND ts>=?", now-604800),
-            "views_month":     _s("SELECT COUNT(*) FROM web_stats WHERE event_type='view' AND ts>=?", now-2592000),
-            "searches_today":  _s("SELECT COUNT(*) FROM web_stats WHERE event_type='search' AND ts>=?", now-86400),
-            "searches_week":   _s("SELECT COUNT(*) FROM web_stats WHERE event_type='search' AND ts>=?", now-604800),
-            "dl_today":        _s("SELECT COUNT(*) FROM web_stats WHERE event_type='dl_click' AND ts>=?", now-86400),
-            "dl_month":        _s("SELECT COUNT(*) FROM web_stats WHERE event_type='dl_click' AND ts>=?", now-2592000),
+        def _s(event_type, since):
+            return web_stats_col.count_documents({"event_type": event_type, "ts": {"$gte": since}})
+        
+        return {
+            "views_today":     _s("view", now-86400),
+            "views_week":      _s("view", now-604800),
+            "views_month":     _s("view", now-2592000),
+            "searches_today":  _s("search", now-86400),
+            "searches_week":   _s("search", now-604800),
+            "dl_today":        _s("dl_click", now-86400),
+            "dl_month":        _s("dl_click", now-2592000),
         }
-        conn.close()
-        return result
     except Exception:
         return {}
 
@@ -398,11 +300,15 @@ def _normalize_search(data: Dict[str, Any] | None) -> Dict[str, Any]:
     }
 
 
-def _build_custom_movie_item(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
-    movie = dict(row)
-    raw_dls = json.loads(movie.get("downloads") or "[]")
+def _build_custom_movie_item(movie: Dict[str, Any]) -> Dict[str, Any]:
+    raw_dls = movie.get("downloads")
+    if isinstance(raw_dls, str):
+        try:
+            raw_dls = json.loads(raw_dls)
+        except Exception:
+            raw_dls = []
     downloads = []
-    for d in raw_dls:
+    for d in (raw_dls or []):
         url = (d.get("url") or "").strip()
         if not url:
             continue
@@ -413,39 +319,43 @@ def _build_custom_movie_item(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any
             "url": f"/cdl/{make_custom_dl_token(url, movie.get('title') or 'Download', quality)}",
             "file_name": "",
         })
+    genres = movie.get("genres") or []
+    if isinstance(genres, str):
+        try:
+            genres = json.loads(genres)
+        except Exception:
+            genres = []
+            
+    custom_id = movie.get("custom_id")
     return {
-        "id": movie.get("id"),
-        "custom_id": movie.get("custom_id"),
+        "id": custom_id,
+        "custom_id": custom_id,
         "tmdb_id": movie.get("tmdb_id"),
         "title": movie.get("title") or "Untitled",
         "year": movie.get("year") or "",
         "rating": movie.get("rating"),
         "overview": movie.get("overview") or "",
-        "genres": json.loads(movie.get("genres") or "[]"),
+        "genres": genres,
         "runtime": None,
         "poster": movie.get("poster_url") or "",
         "backdrop": movie.get("backdrop_url") or "",
         "downloads": downloads,
         "kind": "movie",
         "is_custom": True,
-        "href": url_for("custom_movie", mid=movie["id"]),
+        "href": url_for("custom_movie", mid=custom_id),
     }
 
 
 def _search_custom_movies(q: str) -> List[Dict[str, Any]]:
-    conn = _custom_db()
     try:
-        rows = conn.execute(
-            """
-            SELECT * FROM custom_movies
-            WHERE title LIKE ? OR CAST(custom_id AS TEXT) LIKE ?
-            ORDER BY is_featured DESC, added_at DESC
-            """,
-            (f"%{q}%", f"%{q}%"),
-        ).fetchall()
-        return [_build_custom_movie_item(row) for row in rows]
-    finally:
-        conn.close()
+        query = {"title": {"$regex": q, "$options": "i"}}
+        if q.isdigit():
+            query = {"$or": [query, {"custom_id": int(q)}]}
+            
+        cursor = custom_movies_col.find(query).sort([("is_featured", -1), ("added_at", -1)])
+        return [_build_custom_movie_item(doc) for doc in cursor]
+    except Exception:
+        return []
 
 
 def _live_search_results(q: str, limit: int = 8) -> List[Dict[str, Any]]:
@@ -755,13 +665,13 @@ def admin_logout():
 @app.route("/admin", strict_slashes=False)
 @_admin_required
 def admin_dashboard():
-    conn = _custom_db()
-    movie_count = conn.execute("SELECT COUNT(*) FROM custom_movies").fetchone()[0]
-    featured_count = conn.execute("SELECT COUNT(*) FROM custom_movies WHERE is_featured=1").fetchone()[0]
-    recent = conn.execute(
-        "SELECT id, title, year, poster_url, is_featured FROM custom_movies ORDER BY added_at DESC LIMIT 6"
-    ).fetchall()
-    conn.close()
+    movie_count = custom_movies_col.count_documents({})
+    featured_count = custom_movies_col.count_documents({"is_featured": 1})
+    recent_docs = custom_movies_col.find({}, {"custom_id": 1, "title": 1, "year": 1, "poster_url": 1, "is_featured": 1}).sort("added_at", -1).limit(6)
+    recent = []
+    for d in recent_docs:
+        d["id"] = d.get("custom_id")
+        recent.append(d)
     return render_template(
         "admin_dashboard.html",
         bot=_bot_stats(), web=_web_stats(),
@@ -773,21 +683,19 @@ def admin_dashboard():
 @_admin_required
 def admin_movies():
     q = request.args.get("q", "").strip()
-    conn = _custom_db()
     if q:
-        rows = conn.execute(
-            """
-            SELECT * FROM custom_movies
-            WHERE title LIKE ? OR CAST(custom_id AS TEXT) LIKE ?
-            ORDER BY is_featured DESC, added_at DESC
-            """,
-            (f"%{q}%", f"%{q}%"),
-        ).fetchall()
+        query = {"title": {"$regex": q, "$options": "i"}}
+        if q.isdigit():
+            query = {"$or": [query, {"custom_id": int(q)}]}
+        docs = custom_movies_col.find(query).sort([("is_featured", -1), ("added_at", -1)])
     else:
-        rows = conn.execute(
-            "SELECT * FROM custom_movies ORDER BY is_featured DESC, added_at DESC"
-        ).fetchall()
-    conn.close()
+        docs = custom_movies_col.find({}).sort([("is_featured", -1), ("added_at", -1)])
+    
+    rows = []
+    for d in docs:
+        d["id"] = d.get("custom_id")
+        rows.append(d)
+        
     return render_template("admin_movies.html", movies=rows, q=q)
 
 
@@ -826,21 +734,23 @@ def admin_add_movie():
             })
         downloads = json.dumps(clean_downloads)
         try:
-            conn = _custom_db()
-            row = conn.execute(
-                "SELECT MAX(custom_id) FROM custom_movies WHERE custom_id IS NOT NULL"
-            ).fetchone()
-            custom_id = max(_normalize_positive_int(row[0] if row else None) or 1999, 1999) + 1
-            conn.execute(
-                """INSERT INTO custom_movies
-                       (custom_id,tmdb_id,title,year,rating,overview,poster_url,backdrop_url,
-                        genres,is_featured,added_at,downloads)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (custom_id, source_tmdb_id, title, year, rating, overview, poster, backdrop,
-                 genres, is_feat, int(time.time()), downloads),
-            )
-            conn.commit()
-            conn.close()
+            row = custom_movies_col.find_one({"custom_id": {"$ne": None}}, sort=[("custom_id", -1)])
+            custom_id = max(_normalize_positive_int(row.get("custom_id") if row else None) or 1999, 1999) + 1
+            
+            custom_movies_col.insert_one({
+                "custom_id": custom_id,
+                "tmdb_id": source_tmdb_id,
+                "title": title,
+                "year": year,
+                "rating": rating,
+                "overview": overview,
+                "poster_url": poster,
+                "backdrop_url": backdrop,
+                "genres": genres,
+                "is_featured": is_feat,
+                "added_at": int(time.time()),
+                "downloads": downloads
+            })
             return jsonify({"ok": True, "title": title, "custom_id": custom_id})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -853,22 +763,17 @@ def admin_add_movie():
 @app.route("/admin/movies/delete/<int:mid>", methods=["POST"])
 @_admin_required
 def admin_delete_movie(mid: int):
-    conn = _custom_db()
-    conn.execute("DELETE FROM custom_movies WHERE id=?", (mid,))
-    conn.commit()
-    conn.close()
+    custom_movies_col.delete_one({"custom_id": mid})
     return redirect(url_for("admin_movies"))
 
 
 @app.route("/admin/movies/feature/<int:mid>", methods=["POST"])
 @_admin_required
 def admin_feature_movie(mid: int):
-    conn = _custom_db()
-    row = conn.execute("SELECT is_featured FROM custom_movies WHERE id=?", (mid,)).fetchone()
-    if row:
-        conn.execute("UPDATE custom_movies SET is_featured=? WHERE id=?", (0 if row[0] else 1, mid))
-        conn.commit()
-    conn.close()
+    doc = custom_movies_col.find_one({"custom_id": mid})
+    if doc:
+        new_val = 0 if doc.get("is_featured") else 1
+        custom_movies_col.update_one({"custom_id": mid}, {"$set": {"is_featured": new_val}})
     return redirect(url_for("admin_movies"))
 
 
@@ -952,9 +857,7 @@ def admin_api_imdb_detail():
 
 @app.route("/custom/<int:mid>")
 def custom_movie(mid: int):
-    conn = _custom_db()
-    row = conn.execute("SELECT * FROM custom_movies WHERE id=?", (mid,)).fetchone()
-    conn.close()
+    row = custom_movies_col.find_one({"custom_id": mid})
     if not row:
         abort(404)
     item = _build_custom_movie_item(row)
