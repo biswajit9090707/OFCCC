@@ -22,7 +22,6 @@ from flask import (
 from itsdangerous import BadSignature, URLSafeSerializer
 
 import asyncio
-from pyrogram import Client
 
 # ─────────────────────────── TG STREAMER ───────────────────────────
 TG_API_ID = 39093330
@@ -32,14 +31,20 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "8775047846:AAFWxdXgWJZzqQyZuJBsJh7KYRL_YChyQ
 
 tg_app = None
 
-def run_async(coro):
-    """Helper to run async code in sync Flask routes."""
+def _ensure_event_loop() -> asyncio.AbstractEventLoop:
+    """Return a usable loop for sync Flask/Gunicorn threads."""
     try:
-        loop = asyncio.get_event_loop()
+        return asyncio.get_event_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    return asyncio.get_event_loop().run_until_complete(coro)
+        return loop
+
+
+def run_async(coro):
+    """Helper to run async code in sync Flask routes."""
+    loop = _ensure_event_loop()
+    return loop.run_until_complete(coro)
 
 # Global state for lazy start
 _tg_started = False
@@ -47,15 +52,13 @@ _tg_started = False
 def get_tg_app():
     """Starts the Pyrogram client lazily if not already started."""
     global tg_app, _tg_started
-    
+
     # Ensure an event loop exists in this thread for Pyrogram
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    _ensure_event_loop()
 
     if tg_app is None:
+        from pyrogram import Client
+
         tg_app = Client(
             "hubstream_streamer",
             api_id=TG_API_ID,
@@ -121,6 +124,68 @@ def decode_custom_dl_token(token: str) -> Optional[Dict[str, Any]]:
         return d if isinstance(d, dict) and d.get("u") else None
     except BadSignature:
         return None
+
+
+def _parse_telegram_message_url(url: str) -> Optional[tuple[Any, int]]:
+    if "t.me/" not in url:
+        return None
+
+    parts = [part for part in url.split("t.me/")[-1].split("/") if part]
+    if len(parts) < 2:
+        return None
+
+    if parts[0] == "c" and len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+        return int(f"-100{parts[1]}"), int(parts[2])
+
+    if parts[1].isdigit():
+        return parts[0], int(parts[1])
+
+    return None
+
+
+def _telegram_stream_route(url: str) -> Optional[str]:
+    parsed = _parse_telegram_message_url(url)
+    if not parsed:
+        return None
+
+    chat_ref, message_id = parsed
+    if isinstance(chat_ref, int):
+        internal_id = str(chat_ref).removeprefix("-100")
+        return url_for("telegram_private_stream", chat_id=internal_id, message_id=message_id)
+    return url_for("telegram_stream", channel=chat_ref, message_id=message_id)
+
+
+def _stream_telegram_message(chat_ref: Any, message_id: int) -> Response:
+    client = get_tg_app()
+    message = run_async(client.get_messages(chat_ref, message_id))
+
+    if not message or not (message.document or message.video or message.audio):
+        abort(404, description="No file found in this Telegram post.")
+
+    media = message.document or message.video or message.audio
+    file_name = media.file_name or "download"
+    file_size = media.file_size
+    mime = media.mime_type or "application/octet-stream"
+
+    def stream_generator():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        iterator = client.stream_media(message).__aiter__()
+        try:
+            while True:
+                try:
+                    yield loop.run_until_complete(iterator.__anext__())
+                except StopAsyncIteration:
+                    break
+        finally:
+            loop.close()
+
+    resp = Response(stream_with_context(stream_generator()), mimetype=mime)
+    resp.headers["Content-Disposition"] = f'attachment; filename="{file_name}"'
+    if file_size:
+        resp.headers["Content-Length"] = file_size
+    resp.headers["Cache-Control"] = "private, no-store"
+    return resp
 
 # ─────────────────────── ADMIN CONFIG ──────────────────────────
 ADMIN_PASSWORD  = os.getenv("ADMIN_PASSWORD", "BISWA@9090")
@@ -657,6 +722,7 @@ def download_page(token: str):
         file_name=info.get("n"),
         quality=info.get("q") or "File",
         size=info.get("s") or "",
+        direct_url=f"{DL_BASE}/{info['i']}/{info['n']}",
     )
 
 
@@ -726,6 +792,18 @@ def download_stream(token: str):
     resp.headers["Content-Disposition"] = f'attachment; filename="{info["n"]}"'
     resp.headers["Cache-Control"] = "private, no-store"
     return resp
+
+
+@app.route("/tstream/<channel>/<int:message_id>")
+def telegram_stream(channel: str, message_id: int):
+    return _stream_telegram_message(channel, message_id)
+
+
+@app.route("/tstream/c/<chat_id>/<int:message_id>")
+def telegram_private_stream(chat_id: str, message_id: int):
+    if not chat_id.isdigit():
+        abort(404)
+    return _stream_telegram_message(int(f"-100{chat_id}"), message_id)
 
 
 @app.route("/healthz")
@@ -1031,6 +1109,7 @@ def custom_download_page(token: str):
         token=token,
         title=info.get("t") or "Download",
         quality=info.get("q") or "HD",
+        direct_url=_telegram_stream_route(info["u"]) or info["u"],
     )
 
 
@@ -1052,54 +1131,13 @@ def custom_download_stream(token: str):
     info = decode_custom_dl_token(token)
     if not info:
         abort(404)
-    
+
     url = info["u"].strip()
-    
-    # TELEGRAM LINK HANDLING (t.me/channel/id)
-    if "t.me/" in url:
+
+    parsed = _parse_telegram_message_url(url)
+    if parsed:
         try:
-            # Parse url like https://t.me/username/123 or https://t.me/c/12345/6
-            parts = url.split("t.me/")[-1].split("/")
-            if len(parts) >= 2:
-                chat_username = parts[0]
-                message_id = int(parts[1])
-                
-                # Convert to int if it's a private chat ID
-                if chat_username == "c" and len(parts) >= 3:
-                    chat_username = int("-100" + parts[1])
-                    message_id = int(parts[2])
-                
-                # Use lazy-loaded client
-                client = get_tg_app()
-                message = run_async(client.get_messages(chat_username, message_id))
-                
-                if not message or not (message.document or message.video or message.audio):
-                    abort(404, description="No file found in this Telegram post.")
-                
-                media = message.document or message.video or message.audio
-                file_name = media.file_name or "download"
-                file_size = media.file_size
-                mime = media.mime_type or "application/octet-stream"
-
-                def stream_generator():
-                    loop = asyncio.new_event_loop()
-                    # Use client here
-                    it = client.stream_media(message).__aiter__()
-                    while True:
-                        try:
-                            chunk = loop.run_until_complete(it.__anext__())
-                            yield chunk
-                        except StopAsyncIteration:
-                            break
-                        except Exception:
-                            break
-
-                resp = Response(stream_with_context(stream_generator()), mimetype=mime)
-                resp.headers["Content-Disposition"] = f'attachment; filename="{file_name}"'
-                if file_size:
-                    resp.headers["Content-Length"] = file_size
-                resp.headers["Cache-Control"] = "no-cache"
-                return resp
+            return _stream_telegram_message(*parsed)
         except Exception as e:
             print(f"Telegram streaming error: {e}")
             abort(500, description="Telegram download failed. Make sure the bot is in the channel.")
