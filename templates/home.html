@@ -10,8 +10,14 @@
 </section>
 
 <section class="row">
+  <div class="category-tabs">
+    <a href="{{ url_for('home', type='movie') }}" class="tab {% if current_kind == 'movie' %}active{% endif %}">🎬 Movies</a>
+    <a href="{{ url_for('home', type='series') }}" class="tab {% if current_kind == 'series' %}active{% endif %}">📺 Series</a>
+    <a href="{{ url_for('home', type='anime') }}" class="tab {% if current_kind == 'anime' %}active{% endif %}">🎌 Anime</a>
+  </div>
+
   <div class="flex-between">
-    <h2>Latest Content</h2>
+    <h2 style="text-transform: capitalize;">Latest {{ current_kind }}s</h2>
     <span class="muted">Page {{ page }} of {{ total_pages }}</span>
   </div>
   
@@ -25,7 +31,7 @@
     <!-- Pagination -->
     <div class="pagination">
       {% if page > 1 %}
-        <a href="{{ url_for('home', page=page-1) }}" class="btn">Previous</a>
+        <a href="{{ url_for('home', page=page-1, type=current_kind) }}" class="btn">Previous</a>
       {% endif %}
       
       <div class="pages">
@@ -33,22 +39,22 @@
         {% set end = [total_pages, page + 2]|min %}
         
         {% if start > 1 %}
-          <a href="{{ url_for('home', page=1) }}">1</a>
+          <a href="{{ url_for('home', page=1, type=current_kind) }}">1</a>
           {% if start > 2 %}<span class="muted">...</span>{% endif %}
         {% endif %}
         
         {% for p in range(start, end + 1) %}
-          <a href="{{ url_for('home', page=p) }}" class="{% if p == page %}active{% endif %}">{{ p }}</a>
+          <a href="{{ url_for('home', page=p, type=current_kind) }}" class="{% if p == page %}active{% endif %}">{{ p }}</a>
         {% endfor %}
         
         {% if end < total_pages %}
           {% if end < total_pages - 1 %}<span class="muted">...</span>{% endif %}
-          <a href="{{ url_for('home', page=total_pages) }}">{{ total_pages }}</a>
+          <a href="{{ url_for('home', page=total_pages, type=current_kind) }}">{{ total_pages }}</a>
         {% endif %}
       </div>
 
       {% if page < total_pages %}
-        <a href="{{ url_for('home', page=page+1) }}" class="btn">Next</a>
+        <a href="{{ url_for('home', page=page+1, type=current_kind) }}" class="btn">Next</a>
       {% endif %}
     </div>
   {% else %}

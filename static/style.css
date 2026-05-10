@@ -576,3 +576,48 @@ img { display: block; max-width: 100%; }
   .pagination .pages { gap: 4px; }
   .pagination a { min-width: 34px; height: 34px; font-size: 13px; padding: 0 8px; }
 }
+
+/* -- category tabs --------------------------- */
+.category-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.category-tabs::-webkit-scrollbar { display: none; }
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: all .2s ease;
+}
+
+.tab:hover {
+  background: var(--panel-2);
+  border-color: #444;
+  color: var(--fg);
+}
+
+.tab.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 4px 15px rgba(255,91,58,0.25);
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
