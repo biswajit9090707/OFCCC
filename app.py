@@ -804,22 +804,39 @@ def inject_globals():
 
 @app.route("/")
 def home():
-    page = max(1, int(request.args.get("page") or 1))
-    # Fetch latest movies as the primary feed (Page 1, 2, 3...)
-    # We use ttl=0 to ensure the user sees absolute latest additions
-    data = _cached_get(f"{API_BASE}/movies?page={page}", ttl=0) or {}
+    user_page = max(1, int(request.args.get("page") or 1))
     
-    # Extract results
-    raw_results = data.get("movies") or data.get("results") or []
-    items = [_normalize_catalog_item(it, "movie") for it in raw_results if it.get("tmdb_id")]
+    # User Page 1 -> API Page 1 & 2
+    # User Page 2 -> API Page 3 & 4
+    api_page_start = ((user_page - 1) * 2) + 1
     
-    total_pages = int(data.get("total_pages") or data.get("totalPages") or 10)
+    items_combined = []
+    total_pages_raw = 10
     
+    try:
+        # Fetch two pages worth of content
+        for i in range(2):
+            api_p = api_page_start + i
+            data = _cached_get(f"{API_BASE}/movies?page={api_p}", ttl=0) or {}
+            raw_results = data.get("movies") or data.get("results") or []
+            p_items = [_normalize_catalog_item(it, "movie") for it in raw_results if it.get("tmdb_id")]
+            items_combined.extend(p_items)
+            
+            # Update total pages (divided by 2 since we show 2 per view)
+            api_total = int(data.get("total_pages") or data.get("totalPages") or 20)
+            total_pages_raw = (api_total // 2) + (1 if api_total % 2 else 0)
+
+        # Sort the combined items to ensure newest are on top (if they have an ID or updated_on)
+        # Note: If no updated_on, we rely on the API's natural descending order
+        # which is preserved during the extend()
+    except Exception as e:
+        app.logger.error(f"Home fetch failed: {e}")
+
     return render_template(
         "home.html", 
-        items=items, 
-        page=page, 
-        total_pages=total_pages
+        items=items_combined, 
+        page=user_page, 
+        total_pages=total_pages_raw
     )
 
 
