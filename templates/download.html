@@ -106,14 +106,22 @@
       </div>
     </div>
 
-    <!-- Download Button (shown after countdown) -->
+    <!-- Actions (shown after countdown) -->
     <div class="dl-cta-wrap" id="dlWrap">
-      <a class="dl-cta" href="{{ direct_url }}" id="dlBtn" rel="noopener">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/>
-        </svg>
-        <span>Download</span>
-      </a>
+      <div class="dl-action-row">
+        <a class="dl-cta dl-cta-secondary" href="{{ url_for('play_page', token=token) }}">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m5 3 14 9-14 9V3z"/>
+          </svg>
+          <span>Watch</span>
+        </a>
+        <a class="dl-cta" href="{{ direct_url }}" id="dlBtn" rel="noopener">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/>
+          </svg>
+          <span>Download</span>
+        </a>
+      </div>
       <p class="dl-note muted">
         Your download will start through {{ site_name }}. Keep this tab open until the file finishes saving.
       </p>

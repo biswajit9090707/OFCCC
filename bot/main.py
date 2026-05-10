@@ -1269,9 +1269,10 @@ def _dl_card_line(url: str) -> str:
     return "✅ <b>Download ready — tap the button below</b>"
 
 
-def _dl_keyboard(url: str) -> InlineKeyboardMarkup:
-    """Always point the user at the web /d/<token> download page (ad countdown)."""
+def _dl_keyboard(url: str, watch_url: str) -> InlineKeyboardMarkup:
+    """Point the user at the web watch page and download page."""
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("▶️ Watch", url=watch_url)],
         [InlineKeyboardButton("🌐 Open Download Page", url=url)]
     ])
 
@@ -1317,7 +1318,8 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        keyboard = _dl_keyboard(url)
+        watch_url = url.replace("/d/", "/play/")
+        keyboard = _dl_keyboard(url, watch_url)
     elif kind == "cm":
         row = await fetch_custom_movie(custom_id)
         if not row:
@@ -1353,7 +1355,8 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        keyboard = _dl_keyboard(url)
+        watch_url = url.replace("/cdl/", "/cplay/")
+        keyboard = _dl_keyboard(url, watch_url)
     elif kind == "ep":
         season_no = int(payload.get("season") or 0)
         episode_no = int(payload.get("episode") or 0)
@@ -1397,7 +1400,8 @@ async def deliver_pending_download(
             + "\n━━━━━━━━━━━━━━━━━━━━\n"
             + _dl_card_line(url)
         )
-        keyboard = _dl_keyboard(url)
+        watch_url = url.replace("/d/", "/play/")
+        keyboard = _dl_keyboard(url, watch_url)
     else:
         await context.bot.send_message(
             chat_id=chat_id, text="⚠️ Unknown download request."
@@ -2084,7 +2088,7 @@ async def deliver_file(
     text = (
         f"{caption}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🌐 <b>Tap below to open the download page</b>\n"
+        f"🌐 <b>Tap below to watch or open the download page</b>\n"
         f"<i>A short wait is shown on the download page before it starts.</i>"
     )
     await context.bot.send_message(
@@ -2093,6 +2097,7 @@ async def deliver_file(
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("▶️ Watch", url=web_url.replace("/cdl/", "/cplay/") if "/cdl/" in web_url else web_url.replace("/d/", "/play/"))],
             [InlineKeyboardButton("🌐 Open Download Page", url=web_url)]
         ])
     )

@@ -831,17 +831,49 @@ def download_page(token: str):
 
 @app.route("/play/<token>")
 def play_page(token: str):
-    return render_template("player.html")
+    info = decode_dl_token(token)
+    if not info:
+        abort(404)
+    return render_template(
+        "player.html",
+        title=info.get("t") or info.get("n") or "Watch",
+        quality=info.get("q") or "File",
+        stream_url=url_for("play_stream", token=token),
+        download_url=url_for("download_stream", token=token),
+        mime_type=_guess_media_type(info.get("n") or ""),
+        file_name=info.get("n") or "",
+    )
 
 
 @app.route("/player")
 def generic_player():
-    return render_template("player.html")
+    u = request.args.get("u", "").strip()
+    t = request.args.get("t", "Watch").strip() or "Watch"
+    q = request.args.get("q", "").strip()
+    f = request.args.get("f", "").strip()
+    if not u:
+        abort(404)
+    return render_template(
+        "player.html",
+        title=t,
+        quality=q,
+        stream_url=u,
+        download_url=u,
+        mime_type=_guess_media_type(f or u.split("/")[-1].split("?")[0]),
+        file_name=f,
+    )
 
 
 @app.route("/stream/<token>")
 def play_stream(token: str):
-    abort(404)
+    info = decode_dl_token(token)
+    if not info:
+        abort(404)
+    upstream_url = f"{DL_BASE}/{info['i']}/{info['n']}"
+    result = _proxy_http_stream(upstream_url, info["n"], as_attachment=False)
+    if isinstance(result, tuple):
+        return result
+    return result
 
 
 @app.route("/file/<token>")
@@ -1176,12 +1208,51 @@ def custom_download_page(token: str):
 
 @app.route("/cplay/<token>")
 def custom_play_page(token: str):
-    return render_template("player.html")
+    info = decode_custom_dl_token(token)
+    if not info:
+        abort(404)
+    file_name = info["u"].split("/")[-1].split("?")[0] if info.get("u") else ""
+    return render_template(
+        "player.html",
+        title=info.get("t") or "Watch",
+        quality=info.get("q") or "HD",
+        stream_url=url_for("custom_play_stream", token=token),
+        download_url=url_for("custom_download_stream", token=token),
+        mime_type=_guess_media_type(file_name),
+        file_name=file_name,
+    )
 
 
 @app.route("/cstream/<token>")
 def custom_play_stream(token: str):
-    abort(404)
+    info = decode_custom_dl_token(token)
+    if not info:
+        abort(404)
+
+    url = info["u"].strip()
+    parsed = _parse_telegram_message_url(url)
+    if parsed:
+        try:
+            return _stream_telegram_message(*parsed, as_attachment=False)
+        except Exception as e:
+            print(f"Telegram streaming error: {e}")
+            if TG_SESSION_STRING:
+                message = (
+                    "Telegram stream failed. Make sure the Telegram account behind "
+                    "TELEGRAM_SESSION_STRING can access that post."
+                )
+            else:
+                message = (
+                    "Telegram stream failed. Add your bot to that channel, or configure "
+                    "TELEGRAM_SESSION_STRING so the website can fetch public channel files directly."
+                )
+            return render_template("error.html", code=503, message=message), 503
+
+    fname = url.split("/")[-1].split("?")[0] or "stream"
+    result = _proxy_http_stream(url, fname, as_attachment=False)
+    if isinstance(result, tuple):
+        return result
+    return result
 
 
 @app.route("/cdlfile/<token>")

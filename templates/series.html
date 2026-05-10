@@ -48,6 +48,9 @@
               <div class="ep-dls">
                 {% for d in ep.downloads %}
                   <div class="ep-dl-item">
+                    <a class="pill ghost-pill" href="{{ d.url.replace('/d/', '/play/').replace('/cdl/', '/cplay/') }}">
+                      Watch
+                    </a>
                     <a class="pill" href="{{ d.url }}" rel="noopener">
                       Download {{ d.quality }}{% if d.size %} · {{ d.size }}{% endif %}
                     </a>

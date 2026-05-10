@@ -36,6 +36,7 @@
                 {% if d.size %}<div class="dl-s">{{ d.size }}</div>{% endif %}
               </div>
               <div class="dl-actions">
+                <a class="btn ghost" href="{{ d.url.replace('/d/', '/play/').replace('/cdl/', '/cplay/') }}">Watch</a>
                 <a class="btn" href="{{ d.url }}" rel="noopener">Download</a>
               </div>
             </li>

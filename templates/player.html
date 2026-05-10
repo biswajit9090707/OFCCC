@@ -1,9 +1,415 @@
 {% extends "base.html" %}
-{% block title %}Unavailable · {{ site_name }}{% endblock %}
+{% block title %}{{ title }} · {{ site_name }}{% endblock %}
 {% block content %}
-<section class="empty">
-  <h1>Streaming Removed</h1>
-  <p>Browser streaming is no longer available on this website. Please use the download button on the title page.</p>
-  <a class="btn" href="{{ url_for('home') }}">Back Home</a>
+<style>
+  .watch-shell {
+    display: grid;
+    gap: 18px;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  .watch-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .watch-meta h1 {
+    margin: 0;
+    font-size: clamp(24px, 4vw, 38px);
+    line-height: 1.05;
+  }
+  .watch-sub {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .watch-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+  }
+  .watch-panel {
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    background:
+      radial-gradient(circle at top, rgba(255,91,58,.14), transparent 38%),
+      linear-gradient(180deg, #12121a, #08080d);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .watch-stage {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background: #000;
+  }
+  .watch-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+    display: block;
+  }
+  .watch-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg, rgba(0,0,0,.12), rgba(0,0,0,.45));
+    pointer-events: none;
+    transition: opacity .18s ease;
+  }
+  .watch-overlay.is-hidden {
+    opacity: 0;
+  }
+  .watch-bigplay {
+    width: 88px;
+    height: 88px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.14);
+    background: rgba(0,0,0,.55);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    transition: transform .14s ease, background .14s ease;
+  }
+  .watch-bigplay:hover {
+    transform: scale(1.04);
+    background: rgba(255,91,58,.78);
+  }
+  .watch-controls {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.82));
+  }
+  .watch-progress {
+    appearance: none;
+    width: 100%;
+    height: 5px;
+    margin: 0;
+    border-radius: 999px;
+    background: rgba(255,255,255,.22);
+    cursor: pointer;
+  }
+  .watch-progress::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: #fff;
+    border: 0;
+  }
+  .watch-progress::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: #fff;
+    border: 0;
+  }
+  .watch-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .watch-btn {
+    border: 0;
+    cursor: pointer;
+    color: #fff;
+    background: rgba(255,255,255,.12);
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .14s ease, transform .14s ease;
+  }
+  .watch-btn:hover {
+    background: rgba(255,91,58,.86);
+    transform: translateY(-1px);
+  }
+  .watch-time {
+    min-width: 92px;
+    color: #eef1f5;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .watch-volume {
+    width: 110px;
+    appearance: none;
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.22);
+  }
+  .watch-volume::-webkit-slider-thumb {
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: #fff;
+    border: 0;
+  }
+  .watch-volume::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: #fff;
+    border: 0;
+  }
+  .watch-spacer {
+    flex: 1;
+  }
+  .watch-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .watch-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .watch-action.primary {
+    border: 0;
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  }
+  .watch-error {
+    display: none;
+    padding: 16px 18px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,91,58,.35);
+    background: rgba(255,91,58,.12);
+    color: #ffd8ce;
+    line-height: 1.55;
+  }
+  .watch-error.is-visible {
+    display: block;
+  }
+  @media (max-width: 720px) {
+    .watch-top {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .watch-controls {
+      padding: 12px;
+      gap: 10px;
+    }
+    .watch-row {
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .watch-time {
+      min-width: auto;
+    }
+    .watch-volume {
+      width: 100%;
+      order: 6;
+    }
+    .watch-actions {
+      flex-direction: column;
+    }
+    .watch-action {
+      width: 100%;
+    }
+    .watch-bigplay {
+      width: 74px;
+      height: 74px;
+    }
+  }
+</style>
+
+<section class="watch-shell">
+  <div class="watch-top">
+    <div class="watch-meta">
+      <h1>{{ title }}</h1>
+      <div class="watch-sub">
+        {% if quality %}<span class="watch-badge">{{ quality }}</span>{% endif %}
+        {% if file_name %}<span class="watch-badge">{{ file_name }}</span>{% endif %}
+        {% if mime_type %}<span class="watch-badge">{{ mime_type }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="watch-actions">
+      <a class="watch-action primary" href="{{ download_url }}">Download</a>
+      <a class="watch-action" href="javascript:history.back()">Back</a>
+    </div>
+  </div>
+
+  <div class="watch-panel">
+    <div class="watch-stage" id="watchStage">
+      <video
+        id="watchVideo"
+        class="watch-video"
+        preload="metadata"
+        playsinline
+        crossorigin="anonymous"
+      >
+        <source src="{{ stream_url }}" {% if mime_type %}type="{{ mime_type }}"{% endif %}>
+      </video>
+
+      <div class="watch-overlay" id="watchOverlay">
+        <button class="watch-bigplay" id="bigPlay" type="button" aria-label="Play">
+          <svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor"><path d="m8 5 11 7-11 7z"/></svg>
+        </button>
+      </div>
+
+      <div class="watch-controls">
+        <input id="progressBar" class="watch-progress" type="range" min="0" max="100" value="0" step="0.1" aria-label="Seek">
+        <div class="watch-row">
+          <button class="watch-btn" id="playToggle" type="button" aria-label="Play or pause">
+            <svg id="playIcon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="m8 5 11 7-11 7z"/></svg>
+          </button>
+          <div class="watch-time" id="timeLabel">00:00 / 00:00</div>
+          <button class="watch-btn" id="muteToggle" type="button" aria-label="Mute or unmute">
+            <svg id="volumeIcon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M14 5.23v13.54a1 1 0 0 1-1.65.76L7.8 16H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h3.8l4.55-3.53A1 1 0 0 1 14 5.23Z"/></svg>
+          </button>
+          <input id="volumeBar" class="watch-volume" type="range" min="0" max="1" value="1" step="0.05" aria-label="Volume">
+          <div class="watch-spacer"></div>
+          <button class="watch-btn" id="fullToggle" type="button" aria-label="Fullscreen">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M7 3H3v4h2V5h2V3Zm14 0h-4v2h2v2h2V3ZM5 17H3v4h4v-2H5v-2Zm16 0h-2v2h-2v2h4v-4Z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="watch-error" id="watchError">
+    This file could not start in the custom player. Some MKV files still depend on the codecs inside the file being supported by your browser.
+    You can still use the download button above.
+  </div>
 </section>
+
+<script>
+(() => {
+  const video = document.getElementById('watchVideo');
+  const overlay = document.getElementById('watchOverlay');
+  const bigPlay = document.getElementById('bigPlay');
+  const playToggle = document.getElementById('playToggle');
+  const playIcon = document.getElementById('playIcon');
+  const muteToggle = document.getElementById('muteToggle');
+  const volumeIcon = document.getElementById('volumeIcon');
+  const progressBar = document.getElementById('progressBar');
+  const volumeBar = document.getElementById('volumeBar');
+  const timeLabel = document.getElementById('timeLabel');
+  const fullToggle = document.getElementById('fullToggle');
+  const watchStage = document.getElementById('watchStage');
+  const watchError = document.getElementById('watchError');
+
+  if (!video) return;
+
+  const playSvg = '<path d="m8 5 11 7-11 7z"/>';
+  const pauseSvg = '<path d="M7 5h4v14H7zm6 0h4v14h-4z"/>';
+  const volumeSvg = '<path d="M14 5.23v13.54a1 1 0 0 1-1.65.76L7.8 16H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h3.8l4.55-3.53A1 1 0 0 1 14 5.23Z"/>';
+  const muteSvg = '<path d="M14 5.23v13.54a1 1 0 0 1-1.65.76L7.8 16H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h3.8l4.55-3.53A1 1 0 0 1 14 5.23Z"/><path d="m18 9-6 6" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="m12 9 6 6" stroke="currentColor" stroke-width="1.8" fill="none"/>';
+
+  const formatTime = (seconds) => {
+    if (!Number.isFinite(seconds)) return '00:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  const syncPlayState = () => {
+    const paused = video.paused || video.ended;
+    playIcon.innerHTML = paused ? playSvg : pauseSvg;
+    overlay.classList.toggle('is-hidden', !paused);
+  };
+
+  const syncVolumeState = () => {
+    volumeIcon.innerHTML = (video.muted || Number(volumeBar.value) === 0) ? muteSvg : volumeSvg;
+  };
+
+  const updateProgress = () => {
+    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+      progressBar.value = 0;
+      timeLabel.textContent = `${formatTime(video.currentTime)} / 00:00`;
+      return;
+    }
+    progressBar.value = (video.currentTime / video.duration) * 100;
+    timeLabel.textContent = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
+  };
+
+  const showError = () => {
+    watchError.classList.add('is-visible');
+    syncPlayState();
+  };
+
+  const togglePlayback = async () => {
+    try {
+      if (video.paused) {
+        await video.play();
+      } else {
+        video.pause();
+      }
+    } catch (err) {
+      showError();
+    }
+  };
+
+  playToggle.addEventListener('click', togglePlayback);
+  bigPlay.addEventListener('click', togglePlayback);
+  video.addEventListener('click', togglePlayback);
+  video.addEventListener('play', syncPlayState);
+  video.addEventListener('pause', syncPlayState);
+  video.addEventListener('loadedmetadata', updateProgress);
+  video.addEventListener('timeupdate', updateProgress);
+  video.addEventListener('durationchange', updateProgress);
+  video.addEventListener('error', showError);
+
+  progressBar.addEventListener('input', () => {
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+    video.currentTime = (Number(progressBar.value) / 100) * video.duration;
+  });
+
+  muteToggle.addEventListener('click', () => {
+    video.muted = !video.muted;
+    syncVolumeState();
+  });
+
+  volumeBar.addEventListener('input', () => {
+    const value = Number(volumeBar.value);
+    video.volume = value;
+    video.muted = value === 0;
+    syncVolumeState();
+  });
+
+  fullToggle.addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (watchStage.requestFullscreen) {
+        await watchStage.requestFullscreen();
+      }
+    } catch (err) {}
+  });
+
+  syncPlayState();
+  syncVolumeState();
+  updateProgress();
+})();
+</script>
 {% endblock %}
