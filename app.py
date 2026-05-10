@@ -826,9 +826,8 @@ def home():
             api_total = int(data.get("total_pages") or data.get("totalPages") or 20)
             total_pages_raw = (api_total // 2) + (1 if api_total % 2 else 0)
 
-        # Sort the combined items to ensure newest are on top (if they have an ID or updated_on)
-        # Note: If no updated_on, we rely on the API's natural descending order
-        # which is preserved during the extend()
+        # Sort: 2026 movies first, then everything else
+        items_combined.sort(key=lambda x: (str(x.get("year", "")) == "2026"), reverse=True)
     except Exception as e:
         app.logger.error(f"Home fetch failed: {e}")
 
