@@ -9,17 +9,6 @@
   </form>
 </section>
 
-{% if custom_movies %}
-<section class="row">
-  <h2>Our Picks</h2>
-  <div class="grid">
-    {% for item in custom_movies %}
-      {% include "_card.html" %}
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
-
 {% if rows %}
   {% for row in rows %}
   <section class="row">
