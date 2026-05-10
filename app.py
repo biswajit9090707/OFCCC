@@ -555,7 +555,7 @@ def _normalize_catalog_item(item: Dict[str, Any], default_kind: str) -> Dict[str
 
 def _fetch_latest(endpoint: str, list_keys: List[str], default_kind: str, limit: int = 12) -> List[Dict[str, Any]]:
     """Fetch a catalog endpoint and return the most recently updated items."""
-    data = _cached_get(f"{API_BASE}/{endpoint}", ttl=60) or {}
+    data = _cached_get(f"{API_BASE}/{endpoint}", ttl=0) or {}
     raw: List[Dict[str, Any]] = []
     for k in list_keys:
         v = data.get(k)
@@ -563,7 +563,7 @@ def _fetch_latest(endpoint: str, list_keys: List[str], default_kind: str, limit:
             raw = v
             break
     items = [_normalize_catalog_item(it, default_kind) for it in raw if it.get("tmdb_id")]
-    items.sort(key=lambda it: it.get("updated_on") or "", reverse=True)
+    # Trust the API's natural order (usually newest first)
     return items[:limit]
 
 
