@@ -826,22 +826,29 @@ def home():
         # Fetch two pages worth of content
         for i in range(2):
             api_p = api_page_start + i
-            data = _cached_get(f"{API_BASE}/{api_endpoint}?page={api_p}", ttl=0) or {}
+            data = _cached_get(f"{API_BASE}/{api_endpoint}?page={api_p}", ttl=5)
+            if not data:
+                continue
             
-            # Check multiple possible keys for the data list
             raw_results = []
-            for key in [api_endpoint, "tv_shows", "tvshows", "series", "anime", "movies", "results"]:
-                v = data.get(key)
-                if isinstance(v, list) and v:
-                    raw_results = v
-                    break
+            if isinstance(data, list):
+                raw_results = data
+            elif isinstance(data, dict):
+                # Check multiple possible keys
+                for key in [api_endpoint, "results", "movies", "tvshows", "tv_shows", "series", "anime"]:
+                    v = data.get(key)
+                    if isinstance(v, list) and v:
+                        raw_results = v
+                        break
             
-            # Normalize and allow items even without tmdb_id (fallback to internal id)
-            p_items = [_normalize_catalog_item(it, kind) for it in raw_results if it.get("tmdb_id") or it.get("id")]
-            items_combined.extend(p_items)
+            if raw_results:
+                p_items = [_normalize_catalog_item(it, kind) for it in raw_results if it.get("tmdb_id") or it.get("id")]
+                items_combined.extend(p_items)
             
-            api_total = int(data.get("total_pages") or data.get("totalPages") or 20)
-            total_pages_raw = (api_total // 2) + (1 if api_total % 2 else 0)
+            # Update total pages
+            if isinstance(data, dict):
+                api_total = int(data.get("total_pages") or data.get("totalPages") or 20)
+                total_pages_raw = (api_total // 2) + (1 if api_total % 2 else 0)
 
         # Sort: 2026 content first, then everything else
         items_combined.sort(key=lambda x: (str(x.get("year", "")) == "2026"), reverse=True)
