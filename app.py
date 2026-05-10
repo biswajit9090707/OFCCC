@@ -543,7 +543,8 @@ def _normalize_catalog_item(item: Dict[str, Any], default_kind: str) -> Dict[str
     else:
         kind = default_kind
     return {
-        "tmdb_id": item.get("tmdb_id"),
+        "tmdb_id": item.get("tmdb_id") or item.get("id"),
+
         "title": item.get("title") or item.get("name"),
         "year": item.get("release_year"),
         "rating": item.get("rating"),
@@ -827,9 +828,16 @@ def home():
             api_p = api_page_start + i
             data = _cached_get(f"{API_BASE}/{api_endpoint}?page={api_p}", ttl=0) or {}
             
-            # Different APIs might use different keys like 'movies', 'tvshows', or 'results'
-            raw_results = data.get(api_endpoint) or data.get("results") or []
-            p_items = [_normalize_catalog_item(it, kind) for it in raw_results if it.get("tmdb_id")]
+            # Check multiple possible keys for the data list
+            raw_results = []
+            for key in [api_endpoint, "tv_shows", "tvshows", "series", "anime", "movies", "results"]:
+                v = data.get(key)
+                if isinstance(v, list) and v:
+                    raw_results = v
+                    break
+            
+            # Normalize and allow items even without tmdb_id (fallback to internal id)
+            p_items = [_normalize_catalog_item(it, kind) for it in raw_results if it.get("tmdb_id") or it.get("id")]
             items_combined.extend(p_items)
             
             api_total = int(data.get("total_pages") or data.get("totalPages") or 20)
