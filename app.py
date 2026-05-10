@@ -11,6 +11,7 @@ import json
 import mimetypes
 import os
 import time
+import sqlite3
 from typing import Any, Dict, List, Optional
 from pymongo import MongoClient
 
@@ -181,7 +182,7 @@ def _custom_download_target(token: str, url: str) -> str:
 def _guess_media_type(file_name: str) -> str:
     ext = os.path.splitext((file_name or "").lower())[1]
     explicit = {
-        ".mkv": "video/x-matroska",
+        ".mkv": "video/mp4", # Force video/mp4 for better browser compatibility
         ".mp4": "video/mp4",
         ".m4v": "video/mp4",
         ".mov": "video/quicktime",
@@ -434,7 +435,7 @@ def decode_dl_token(token: str) -> Optional[Dict[str, Any]]:
     return data
 
 
-# ────────────────────── tiny in-process cache ──────────────────────
+# ────────────────────────── tiny in-process cache ──────────────────────
 _cache: Dict[str, tuple[float, Any]] = {}
 
 
@@ -577,10 +578,11 @@ def _build_custom_movie_item(movie: Dict[str, Any]) -> Dict[str, Any]:
         "poster": movie.get("poster_url") or "",
         "backdrop": movie.get("backdrop_url") or "",
         "downloads": downloads,
-        "kind": "movie",
+        "kind": movie.get("kind") or "movie", # Use kind from DB if available
         "is_custom": True,
         "is_featured": bool(movie.get("is_featured")),
         "href": url_for("custom_movie", mid=custom_id),
+        "added_at": movie.get("added_at") or 0,
     }
 
 
@@ -754,26 +756,42 @@ def inject_globals():
 @app.route("/")
 def home():
     rows: List[Dict[str, Any]] = []
+    
+    # Fetch custom movies first
+    custom_movies_all: List[Dict[str, Any]] = []
+    try:
+        # Sort by added_at desc so latest custom movies are found
+        cursor = custom_movies_col.find().sort("added_at", -1)
+        for doc in cursor:
+            item = _build_custom_movie_item(doc)
+            custom_movies_all.append(item)
+    except Exception as e:
+        app.logger.error(f"Home custom movies fetch failed: {e}")
+
     sections = [
         ("🎬 Latest Movies",  "movies",  ["movies"],            "movie"),
         ("📺 Latest Series",  "tvshows", ["tv_shows", "tvshows", "series"], "series"),
         ("🎌 Latest Anime",   "anime",   ["anime"],             "anime"),
     ]
+    
     for title, endpoint, keys, default_kind in sections:
-        items = _fetch_latest(endpoint, keys, default_kind, limit=12)
-        if items:
-            rows.append({"title": title, "items": items})
-    # Custom movies — full data including signed download tokens for modal
-    custom_movies: List[Dict[str, Any]] = []
-    try:
-        # MongoDB migration: Use custom_movies_col
-        cursor = custom_movies_col.find().sort([("is_featured", -1), ("added_at", -1)])
-        for doc in cursor:
-            custom_movies.append(_build_custom_movie_item(doc))
-    except Exception as e:
-        app.logger.error(f"Home custom movies fetch failed: {e}")
+        api_items = _fetch_latest(endpoint, keys, default_kind, limit=12)
         
-    return render_template("home.html", rows=rows, custom_movies=custom_movies)
+        # Filter custom items for this category
+        cat_custom = [m for m in custom_movies_all if m.get("kind") == default_kind]
+        
+        # Merge: Custom items (latest first) then API items
+        combined = cat_custom + (api_items or [])
+        # Final sort: Featured always on top, then by added_at (or updated_on)
+        combined.sort(key=lambda x: (x.get("is_featured", 0), x.get("added_at", 0) or 0), reverse=True)
+        
+        if combined:
+            rows.append({"title": title, "items": combined[:12]})
+            
+    # Featured picks for the top banner
+    featured_picks = [m for m in custom_movies_all if m.get("is_featured")]
+    
+    return render_template("home.html", rows=rows, custom_movies=featured_picks)
 
 
 @app.route("/search")
@@ -987,6 +1005,8 @@ def admin_add_movie():
         backdrop = data.get("backdrop_url") or ""
         source_tmdb_id = _normalize_positive_int(data.get("tmdb_id"))
         is_feat  = 1 if data.get("is_featured") else 0
+        kind     = data.get("kind") or "movie"
+        
         # Download links: [{quality, size, url}]
         raw_dls  = data.get("downloads") or []
         clean_downloads = []
@@ -1000,12 +1020,11 @@ def admin_add_movie():
                 "url": url,
             })
         downloads = json.dumps(clean_downloads)
+        
+        mid = int(time.time())
         try:
-            row = custom_movies_col.find_one({"custom_id": {"$ne": None}}, sort=[("custom_id", -1)])
-            custom_id = max(_normalize_positive_int(row.get("custom_id") if row else None) or 1999, 1999) + 1
-            
             custom_movies_col.insert_one({
-                "custom_id": custom_id,
+                "custom_id": mid,
                 "tmdb_id": source_tmdb_id,
                 "title": title,
                 "year": year,
@@ -1015,16 +1034,15 @@ def admin_add_movie():
                 "backdrop_url": backdrop,
                 "genres": genres,
                 "is_featured": is_feat,
-                "added_at": int(time.time()),
-                "downloads": downloads
+                "downloads": downloads,
+                "kind": kind,
+                "added_at": int(time.time())
             })
-            return jsonify({"ok": True, "title": title, "custom_id": custom_id})
+            return jsonify({"ok": True, "id": mid})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
-    return render_template(
-        "admin_add_movie.html",
-        omdb_configured=bool(_configured_omdb_api_key()),
-    )
+            
+    return render_template("admin_add_movie.html", omdb_configured=bool(_configured_omdb_api_key()))
 
 
 @app.route("/admin/movies/edit/<int:mid>", methods=["GET", "POST"])
@@ -1033,6 +1051,7 @@ def admin_edit_movie(mid: int):
     doc = custom_movies_col.find_one({"custom_id": mid})
     if not doc:
         abort(404)
+        
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
         title    = (data.get("title") or "").strip()
@@ -1050,6 +1069,8 @@ def admin_edit_movie(mid: int):
         poster   = data.get("poster_url") or ""
         backdrop = data.get("backdrop_url") or ""
         is_feat  = 1 if data.get("is_featured") else 0
+        kind     = data.get("kind") or "movie"
+        
         raw_dls  = data.get("downloads") or []
         clean_downloads = []
         for d in raw_dls:
@@ -1074,7 +1095,8 @@ def admin_edit_movie(mid: int):
                     "backdrop_url": backdrop,
                     "genres": genres,
                     "is_featured": is_feat,
-                    "downloads": downloads
+                    "downloads": downloads,
+                    "kind": kind
                 }}
             )
             return jsonify({"ok": True, "title": title})
@@ -1119,181 +1141,10 @@ def admin_api_search():
             "tmdb_id": item.get("tmdb_id"),
             "title":   item.get("title") or item.get("name"),
             "year":    item.get("release_year"),
-            "rating":  item.get("rating"),
-            "poster":  _poster(item),
-            "type":    item.get("media_type"),
         })
     return jsonify(out)
 
 
-@app.route("/admin/api/imdb-search")
-@_admin_required
-def admin_api_imdb_search():
-    q = request.args.get("q", "").strip()
-    if not q:
-        return jsonify([])
-    omdb_key = _configured_omdb_api_key()
-    if omdb_key:
-        try:
-            r = requests.get(
-                f"http://www.omdbapi.com/?s={requests.utils.quote(q)}&apikey={omdb_key}",
-                timeout=8,
-            )
-            d = r.json()
-            if d.get("Search"):
-                return jsonify([{
-                    "imdb_id": m["imdbID"],
-                    "title":   m["Title"],
-                    "year":    m["Year"],
-                    "type":    m["Type"],
-                    "poster":  m["Poster"] if m["Poster"] != "N/A" else None,
-                } for m in d["Search"][:10]])
-        except Exception as e:
-            app.logger.warning("OMDB search failed: %s", e)
-    return jsonify([])
-
-
-@app.route("/admin/api/imdb-detail")
-@_admin_required
-def admin_api_imdb_detail():
-    imdb_id = request.args.get("id", "").strip()
-    omdb_key = _configured_omdb_api_key()
-    if not imdb_id or not omdb_key:
-        return jsonify({"error": "No OMDB key or ID"}), 400
-    try:
-        r = requests.get(
-            f"http://www.omdbapi.com/?i={imdb_id}&apikey={omdb_key}&plot=full",
-            timeout=8,
-        )
-        d = r.json()
-        poster = d.get("Poster", "")
-        return jsonify({
-            "title":    d.get("Title", ""),
-            "year":     (d.get("Year") or "").split("–")[0].split("-")[0],
-            "rating":   d.get("imdbRating", ""),
-            "overview": d.get("Plot", ""),
-            "genres":   [g.strip() for g in (d.get("Genre") or "").split(",") if g.strip()],
-            "poster":   poster if poster != "N/A" else "",
-            "director": d.get("Director", ""),
-            "runtime":  d.get("Runtime", ""),
-            "imdb_id":  imdb_id,
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/custom/<int:mid>")
-def custom_movie(mid: int):
-    row = custom_movies_col.find_one({"custom_id": mid})
-    if not row:
-        abort(404)
-    item = _build_custom_movie_item(row)
-    return render_template("movie.html", item=item)
-
-
-@app.route("/cdl/<token>")
-def custom_download_page(token: str):
-    """Countdown + ad page for custom movie downloads."""
-    info = decode_custom_dl_token(token)
-    if not info:
-        abort(404)
-    return render_template(
-        "custom_download.html",
-        token=token,
-        title=info.get("t") or "Download",
-        quality=info.get("q") or "HD",
-        direct_url=_custom_download_target(token, info["u"]),
-    )
-
-
-@app.route("/cplay/<token>")
-def custom_play_page(token: str):
-    info = decode_custom_dl_token(token)
-    if not info:
-        abort(404)
-    file_name = info["u"].split("/")[-1].split("?")[0] if info.get("u") else ""
-    return render_template(
-        "player.html",
-        title=info.get("t") or "Watch",
-        quality=info.get("q") or "HD",
-        stream_url=url_for("custom_play_stream", token=token),
-        download_url=url_for("custom_download_stream", token=token),
-        mime_type=_guess_media_type(file_name),
-        file_name=file_name,
-    )
-
-
-@app.route("/cstream/<token>")
-def custom_play_stream(token: str):
-    info = decode_custom_dl_token(token)
-    if not info:
-        abort(404)
-
-    url = info["u"].strip()
-    parsed = _parse_telegram_message_url(url)
-    if parsed:
-        try:
-            return _stream_telegram_message(*parsed, as_attachment=False)
-        except Exception as e:
-            print(f"Telegram streaming error: {e}")
-            if TG_SESSION_STRING:
-                message = (
-                    "Telegram stream failed. Make sure the Telegram account behind "
-                    "TELEGRAM_SESSION_STRING can access that post."
-                )
-            else:
-                message = (
-                    "Telegram stream failed. Add your bot to that channel, or configure "
-                    "TELEGRAM_SESSION_STRING so the website can fetch public channel files directly."
-                )
-            return render_template("error.html", code=503, message=message), 503
-
-    fname = url.split("/")[-1].split("?")[0] or "stream"
-    result = _proxy_http_stream(url, fname, as_attachment=False)
-    if isinstance(result, tuple):
-        return result
-    return result
-
-
-@app.route("/cdlfile/<token>")
-def custom_download_stream(token: str):
-    """Stream the custom movie file, with special handling for Telegram t.me links."""
-    info = decode_custom_dl_token(token)
-    if not info:
-        abort(404)
-
-    url = info["u"].strip()
-
-    parsed = _parse_telegram_message_url(url)
-    if parsed:
-        try:
-            return _stream_telegram_message(*parsed, as_attachment=True)
-        except Exception as e:
-            print(f"Telegram streaming error: {e}")
-            if TG_SESSION_STRING:
-                message = (
-                    "Telegram download failed. Make sure the Telegram account behind "
-                    "TELEGRAM_SESSION_STRING can access that post."
-                )
-            else:
-                message = (
-                    "Telegram download failed. Add your bot to that channel, or configure "
-                    "TELEGRAM_SESSION_STRING so the website can fetch public channel files directly."
-                )
-            return render_template(
-                "error.html",
-                code=503,
-                message=message,
-            ), 503
-
-    fname = url.split("/")[-1].split("?")[0] or "download"
-    result = _proxy_http_stream(url, fname, as_attachment=True)
-    if isinstance(result, tuple):
-        return result
-    return result
-
-
-# ─────────────────────── SETTINGS ROUTES ──────────────────────
 @app.route("/admin/settings", methods=["GET", "POST"])
 @_admin_required
 def admin_settings():
@@ -1377,7 +1228,77 @@ def admin_api_tmdb_detail():
         return jsonify({"error": str(e)}), 500
 
 
-# ────────────────────── ERROR HANDLERS ─────────────────────────
+@app.route("/c/<int:mid>")
+def custom_movie(mid: int):
+    doc = custom_movies_col.find_one({"custom_id": mid})
+    if not doc:
+        abort(404)
+    item = _build_custom_movie_item(doc)
+    return render_template("movie.html", item=item)
+
+
+@app.route("/cdl/<token>")
+def custom_download_page(token: str):
+    info = decode_custom_dl_token(token)
+    if not info:
+        abort(404)
+    return render_template(
+        "custom_download.html",
+        token=token,
+        title=info.get("t") or "Download",
+        quality=info.get("q") or "HD",
+        direct_url=_custom_download_target(token, info["u"]),
+    )
+
+
+@app.route("/cplay/<token>")
+def custom_play_page(token: str):
+    info = decode_custom_dl_token(token)
+    if not info:
+        abort(404)
+    file_name = info["u"].split("/")[-1].split("?")[0] if info.get("u") else ""
+    return render_template(
+        "player.html",
+        title=info.get("t") or "Watch",
+        quality=info.get("q") or "HD",
+        stream_url=url_for("custom_play_stream", token=token),
+        download_url=url_for("custom_download_stream", token=token),
+        mime_type=_guess_media_type(file_name),
+        file_name=file_name,
+    )
+
+
+@app.route("/cstream/<token>")
+def custom_play_stream(token: str):
+    info = decode_custom_dl_token(token)
+    if not info:
+        abort(404)
+    url = info["u"].strip()
+    parsed = _parse_telegram_message_url(url)
+    if parsed:
+        return _stream_telegram_message(*parsed, as_attachment=False)
+    fname = url.split("/")[-1].split("?")[0] or "stream"
+    return _proxy_http_stream(url, fname, as_attachment=False)
+
+
+@app.route("/cdlfile/<token>")
+def custom_download_stream(token: str):
+    info = decode_custom_dl_token(token)
+    if not info:
+        abort(404)
+    url = info["u"].strip()
+    parsed = _parse_telegram_message_url(url)
+    if parsed:
+        return _stream_telegram_message(*parsed, as_attachment=True)
+    fname = url.split("/")[-1].split("?")[0] or "download"
+    return _proxy_http_stream(url, fname, as_attachment=True)
+
+
+@app.route("/tstream/c/<chat_id>/<int:message_id>")
+def telegram_private_stream(chat_id: str, message_id: int):
+    abort(404)
+
+
 @app.errorhandler(404)
 def _404(_):
     return render_template("error.html", code=404, message="Page not found"), 404
