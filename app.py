@@ -804,29 +804,23 @@ def inject_globals():
 
 @app.route("/")
 def home():
-    rows: List[Dict[str, Any]] = []
+    page = max(1, int(request.args.get("page") or 1))
+    # Fetch latest movies as the primary feed (Page 1, 2, 3...)
+    # We use ttl=0 to ensure the user sees absolute latest additions
+    data = _cached_get(f"{API_BASE}/movies?page={page}", ttl=0) or {}
     
-    sections = [
-        ("🎬 Latest Movies",  "movies",  ["movies"],            "movie"),
-        ("📺 Latest Series",  "tvshows", ["tv_shows", "tvshows", "series"], "series"),
-        ("🎌 Latest Anime",   "anime",   ["anime"],             "anime"),
-    ]
+    # Extract results
+    raw_results = data.get("movies") or data.get("results") or []
+    items = [_normalize_catalog_item(it, "movie") for it in raw_results if it.get("tmdb_id")]
     
-    for title, endpoint, keys, default_kind in sections:
-        items = _fetch_latest(endpoint, keys, default_kind, limit=12)
-        if items:
-            rows.append({"title": title, "items": items})
-            
-    # Fetch custom movies separately for the "Our Picks" / "Added by Admin" section
-    custom_movies: List[Dict[str, Any]] = []
-    try:
-        cursor = custom_movies_col.find().sort([("is_featured", -1), ("added_at", -1)])
-        for doc in cursor:
-            custom_movies.append(_build_custom_movie_item(doc))
-    except Exception as e:
-        app.logger.error(f"Home custom movies fetch failed: {e}")
+    total_pages = int(data.get("total_pages") or data.get("totalPages") or 10)
     
-    return render_template("home.html", rows=rows, custom_movies=custom_movies)
+    return render_template(
+        "home.html", 
+        items=items, 
+        page=page, 
+        total_pages=total_pages
+    )
 
 
 @app.route("/search")

@@ -9,18 +9,50 @@
   </form>
 </section>
 
-{% if rows %}
-  {% for row in rows %}
-  <section class="row">
-    <h2>{{ row.title }}</h2>
+<section class="row">
+  <div class="flex-between">
+    <h2>Latest Content</h2>
+    <span class="muted">Page {{ page }} of {{ total_pages }}</span>
+  </div>
+  
+  {% if items %}
     <div class="grid">
-      {% for item in row['items'] %}
+      {% for item in items %}
         {% include "_card.html" %}
       {% endfor %}
     </div>
-  </section>
-  {% endfor %}
-{% else %}
-  <p class="muted center">Catalogue is warming up. Try a search above.</p>
-{% endif %}
+    
+    <!-- Pagination -->
+    <div class="pagination">
+      {% if page > 1 %}
+        <a href="{{ url_for('home', page=page-1) }}" class="btn">Previous</a>
+      {% endif %}
+      
+      <div class="pages">
+        {% set start = [1, page - 2]|max %}
+        {% set end = [total_pages, page + 2]|min %}
+        
+        {% if start > 1 %}
+          <a href="{{ url_for('home', page=1) }}">1</a>
+          {% if start > 2 %}<span class="muted">...</span>{% endif %}
+        {% endif %}
+        
+        {% for p in range(start, end + 1) %}
+          <a href="{{ url_for('home', page=p) }}" class="{% if p == page %}active{% endif %}">{{ p }}</a>
+        {% endfor %}
+        
+        {% if end < total_pages %}
+          {% if end < total_pages - 1 %}<span class="muted">...</span>{% endif %}
+          <a href="{{ url_for('home', page=total_pages) }}">{{ total_pages }}</a>
+        {% endif %}
+      </div>
+
+      {% if page < total_pages %}
+        <a href="{{ url_for('home', page=page+1) }}" class="btn">Next</a>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="muted center">No content found. Try refreshing or search above.</p>
+  {% endif %}
+</section>
 {% endblock %}
