@@ -907,14 +907,7 @@ def download_stream(token: str):
     return result
 
 
-@app.route("/tstream/<channel>/<int:message_id>")
-def telegram_stream(channel: str, message_id: int):
-    abort(404)
 
-
-@app.route("/tstream/c/<chat_id>/<int:message_id>")
-def telegram_private_stream(chat_id: str, message_id: int):
-    abort(404)
 
 
 @app.route("/healthz")
