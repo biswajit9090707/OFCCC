@@ -218,24 +218,73 @@ def _stream_telegram_message(chat_ref: Any, message_id: int, as_attachment: bool
     file_size = media.file_size
     mime = media.mime_type or _guess_media_type(file_name)
 
-    def stream_generator():
+    # RANGE SUPPORT
+    range_header = request.headers.get("Range")
+    start_byte = 0
+    end_byte = file_size - 1 if file_size else 0
+    status_code = 200
+
+    if range_header and file_size:
+        try:
+            # Parse Range: bytes=0-100
+            byte_range = range_header.replace("bytes=", "").split("-")
+            if byte_range[0]:
+                start_byte = int(byte_range[0])
+            if len(byte_range) > 1 and byte_range[1]:
+                end_byte = int(byte_range[1])
+            status_code = 206
+        except Exception:
+            pass
+
+    def stream_generator(offset, limit_size):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        # Note: Pyrogram 2.0 stream_media doesn't natively take offset easily,
+        # so we use a simple skip logic for now. Real seeking requires a more complex
+        # block-based fetcher, but this often helps browsers start playback.
         iterator = client.stream_media(message).__aiter__()
+        bytes_sent = 0
         try:
             while True:
                 try:
-                    yield loop.run_until_complete(iterator.__anext__())
+                    chunk = loop.run_until_complete(iterator.__anext__())
+                    chunk_len = len(chunk)
+                    
+                    if bytes_sent + chunk_len <= offset:
+                        bytes_sent += chunk_len
+                        continue
+                        
+                    if bytes_sent < offset:
+                        # Partial chunk skip
+                        skip = offset - bytes_sent
+                        chunk = chunk[skip:]
+                        bytes_sent += skip
+                    
+                    send_len = min(len(chunk), (end_byte + 1) - bytes_sent)
+                    if send_len <= 0:
+                        break
+                        
+                    yield chunk[:send_len]
+                    bytes_sent += send_len
+                    
+                    if bytes_sent > end_byte:
+                        break
                 except StopAsyncIteration:
                     break
         finally:
             loop.close()
 
-    resp = Response(stream_with_context(stream_generator()), mimetype=mime)
+    resp = Response(
+        stream_with_context(stream_generator(start_byte, (end_byte - start_byte) + 1)),
+        status=status_code,
+        mimetype=mime
+    )
     disposition = "attachment" if as_attachment else "inline"
     resp.headers["Content-Disposition"] = f'{disposition}; filename="{file_name}"'
+    resp.headers["Accept-Ranges"] = "bytes"
     if file_size:
-        resp.headers["Content-Length"] = file_size
+        resp.headers["Content-Length"] = str((end_byte - start_byte) + 1)
+        resp.headers["Content-Range"] = f"bytes {start_byte}-{end_byte}/{file_size}"
     resp.headers["Cache-Control"] = "private, no-store"
     return resp
 
@@ -757,17 +806,6 @@ def inject_globals():
 def home():
     rows: List[Dict[str, Any]] = []
     
-    # Fetch custom movies first
-    custom_movies_all: List[Dict[str, Any]] = []
-    try:
-        # Sort by added_at desc so latest custom movies are found
-        cursor = custom_movies_col.find().sort("added_at", -1)
-        for doc in cursor:
-            item = _build_custom_movie_item(doc)
-            custom_movies_all.append(item)
-    except Exception as e:
-        app.logger.error(f"Home custom movies fetch failed: {e}")
-
     sections = [
         ("🎬 Latest Movies",  "movies",  ["movies"],            "movie"),
         ("📺 Latest Series",  "tvshows", ["tv_shows", "tvshows", "series"], "series"),
@@ -775,23 +813,20 @@ def home():
     ]
     
     for title, endpoint, keys, default_kind in sections:
-        api_items = _fetch_latest(endpoint, keys, default_kind, limit=12)
-        
-        # Filter custom items for this category
-        cat_custom = [m for m in custom_movies_all if m.get("kind") == default_kind]
-        
-        # Merge: Custom items (latest first) then API items
-        combined = cat_custom + (api_items or [])
-        # Final sort: Featured always on top, then by added_at (or updated_on)
-        combined.sort(key=lambda x: (x.get("is_featured", 0), x.get("added_at", 0) or 0), reverse=True)
-        
-        if combined:
-            rows.append({"title": title, "items": combined[:12]})
+        items = _fetch_latest(endpoint, keys, default_kind, limit=12)
+        if items:
+            rows.append({"title": title, "items": items})
             
-    # Featured picks for the top banner
-    featured_picks = [m for m in custom_movies_all if m.get("is_featured")]
+    # Fetch custom movies separately for the "Our Picks" / "Added by Admin" section
+    custom_movies: List[Dict[str, Any]] = []
+    try:
+        cursor = custom_movies_col.find().sort([("is_featured", -1), ("added_at", -1)])
+        for doc in cursor:
+            custom_movies.append(_build_custom_movie_item(doc))
+    except Exception as e:
+        app.logger.error(f"Home custom movies fetch failed: {e}")
     
-    return render_template("home.html", rows=rows, custom_movies=featured_picks)
+    return render_template("home.html", rows=rows, custom_movies=custom_movies)
 
 
 @app.route("/search")
