@@ -211,35 +211,43 @@
     display: block;
   }
   @media (max-width: 720px) {
+    .watch-shell { gap: 14px; }
     .watch-top {
-      flex-direction: column;
-      align-items: stretch;
+      flex-direction: row;
+      align-items: center;
+      padding: 0 4px;
     }
+    .watch-meta h1 { font-size: 18px; }
+    .watch-sub { display: none; }
     .watch-controls {
-      padding: 12px;
-      gap: 10px;
+      padding: 8px 12px;
+      gap: 6px;
     }
     .watch-row {
-      flex-wrap: wrap;
-      gap: 10px;
+      gap: 8px;
     }
     .watch-time {
+      font-size: 11px;
       min-width: auto;
     }
     .watch-volume {
-      width: 100%;
-      order: 6;
+      display: none;
     }
-    .watch-actions {
-      flex-direction: column;
+    .watch-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
     }
     .watch-action {
-      width: 100%;
+      padding: 8px 14px;
+      font-size: 13px;
+      border-radius: 8px;
     }
     .watch-bigplay {
-      width: 74px;
-      height: 74px;
+      width: 64px;
+      height: 64px;
     }
+    .watch-bigplay svg { width: 24px; height: 24px; }
   }
 </style>
 
@@ -254,7 +262,6 @@
       </div>
     </div>
     <div class="watch-actions">
-      <a class="watch-action primary" href="{{ download_url }}">Download</a>
       <a class="watch-action" href="javascript:history.back()">Back</a>
     </div>
   </div>
