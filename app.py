@@ -237,46 +237,48 @@ def _stream_telegram_message(chat_ref: Any, message_id: int, as_attachment: bool
         except Exception:
             pass
 
-    def stream_generator(offset, limit_size):
+    def stream_generator(start, end):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        # Note: Pyrogram 2.0 stream_media doesn't natively take offset easily,
-        # so we use a simple skip logic for now. Real seeking requires a more complex
-        # block-based fetcher, but this often helps browsers start playback.
-        iterator = client.stream_media(message).__aiter__()
-        bytes_sent = 0
+        
+        # Telegram files are served in blocks. Pyrogram's stream_media 'offset' 
+        # parameter usually refers to the number of blocks to skip.
+        # We assume 1MB blocks which is standard for large files in MTProto.
+        BLOCK_SIZE = 1024 * 1024 
+        start_block = start // BLOCK_SIZE
+        skip_in_first_block = start % BLOCK_SIZE
+        
         try:
-            while True:
+            # Fetch stream starting from the calculated block offset
+            iterator = client.stream_media(message, offset=start_block).__aiter__()
+            bytes_sent = 0
+            total_to_send = (end - start) + 1
+            
+            # Handle first block (may need partial skipping if start is not block-aligned)
+            try:
+                chunk = loop.run_until_complete(iterator.__anext__())
+                if chunk and skip_in_first_block:
+                    chunk = chunk[skip_in_first_block:]
+            except (StopAsyncIteration, Exception):
+                chunk = None
+
+            while chunk and bytes_sent < total_to_send:
+                send_len = min(len(chunk), total_to_send - bytes_sent)
+                yield chunk[:send_len]
+                bytes_sent += send_len
+                
+                if bytes_sent >= total_to_send:
+                    break
+                
                 try:
                     chunk = loop.run_until_complete(iterator.__anext__())
-                    chunk_len = len(chunk)
-                    
-                    if bytes_sent + chunk_len <= offset:
-                        bytes_sent += chunk_len
-                        continue
-                        
-                    if bytes_sent < offset:
-                        # Partial chunk skip
-                        skip = offset - bytes_sent
-                        chunk = chunk[skip:]
-                        bytes_sent += skip
-                    
-                    send_len = min(len(chunk), (end_byte + 1) - bytes_sent)
-                    if send_len <= 0:
-                        break
-                        
-                    yield chunk[:send_len]
-                    bytes_sent += send_len
-                    
-                    if bytes_sent > end_byte:
-                        break
-                except StopAsyncIteration:
+                except (StopAsyncIteration, Exception):
                     break
         finally:
             loop.close()
 
     resp = Response(
-        stream_with_context(stream_generator(start_byte, (end_byte - start_byte) + 1)),
+        stream_with_context(stream_generator(start_byte, end_byte)),
         status=status_code,
         mimetype=mime
     )
