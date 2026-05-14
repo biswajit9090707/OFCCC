@@ -20,8 +20,9 @@ import requests
 from flask import (
     Flask, Response, abort, jsonify, redirect,
     render_template, request, session,
-    stream_with_context, url_for,
+    stream_with_context, url_for, make_response
 )
+
 from itsdangerous import BadSignature, URLSafeSerializer
 
 import asyncio
@@ -1017,6 +1018,62 @@ def download_stream(token: str):
 @app.route("/healthz")
 def healthz():
     return {"ok": True, "service": SITE_NAME}, 200
+
+
+@app.route("/sitemap.xml")
+def sitemap():
+    """Generate a dynamic sitemap.xml listing main pages and custom movies."""
+    try:
+        pages = []
+        now_str = time.strftime("%Y-%m-%d")
+        
+        # 1. Main Landing Pages
+        main_endpoints = ["home"]
+        for ep in main_endpoints:
+            try:
+                pages.append({
+                    "loc": url_for(ep, _external=True),
+                    "lastmod": now_str,
+                    "priority": "1.0"
+                })
+            except: pass
+
+        # 2. Custom Movies from MongoDB (High Priority for indexing)
+        try:
+            cursor = custom_movies_col.find({}, {"custom_id": 1, "added_at": 1}).sort("added_at", -1)
+            for movie in cursor:
+                loc = url_for("custom_movie", mid=movie["custom_id"], _external=True)
+                ts = movie.get("added_at")
+                lastmod = time.strftime("%Y-%m-%d", time.gmtime(ts)) if ts else now_str
+                pages.append({
+                    "loc": loc,
+                    "lastmod": lastmod,
+                    "priority": "0.8"
+                })
+        except Exception as e:
+            app.logger.error(f"Sitemap Mongo fetch failed: {e}")
+
+        sitemap_xml = render_template("sitemap.xml", pages=pages)
+        response = make_response(sitemap_xml)
+        response.headers["Content-Type"] = "application/xml"
+        return response
+    except Exception as e:
+        app.logger.error(f"Sitemap generation error: {e}")
+        return Response("Error generating sitemap", status=500)
+
+
+@app.route("/robots.txt")
+def robots():
+    """Instruct search engines on what to crawl and where the sitemap is."""
+    lines = [
+        "User-agent: *",
+        "Disallow: /admin/",
+        "Disallow: /admin",
+        "Disallow: /api/",
+        "Allow: /",
+        f"Sitemap: {url_for('sitemap', _external=True)}"
+    ]
+    return Response("\n".join(lines), mimetype="text/plain")
 
 
 # ─────────────────────── ADMIN ROUTES ─────────────────────────
