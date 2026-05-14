@@ -116,6 +116,11 @@ app.config["JSON_SORT_KEYS"] = False
 app.secret_key = os.getenv("SESSION_SECRET") or "ofcmovies@secret#key!2024$dl"
 
 
+@app.route("/google1dceb77e6840a350.html")
+def google_verification():
+    return "google-site-verification: google1dceb77e6840a350.html"
+
+
 @app.template_filter('from_json')
 def from_json_filter(s):
     if not s: return []
