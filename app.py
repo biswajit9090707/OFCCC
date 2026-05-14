@@ -823,13 +823,13 @@ def home():
     try:
         # Determine which endpoints to fetch from based on category
         if category == "all":
-            endpoints = ["movies", "series", "anime"]
+            endpoints = ["movies", "ser", "ani"]
             # Fetch one page from each endpoint
             for endpoint in endpoints:
                 api_p = api_page_start
                 data = _cached_get(f"{API_BASE}/{endpoint}?page={api_p}", ttl=0) or {}
                 raw_results = data.get(endpoint) or data.get("results") or []
-                default_kind = "movie" if endpoint == "movies" else ("anime" if endpoint == "anime" else "series")
+                default_kind = "movie" if endpoint == "movies" else ("anime" if endpoint == "ani" else "series")
                 p_items = [_normalize_catalog_item(it, default_kind) for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
                 if data:
@@ -850,8 +850,8 @@ def home():
         elif category == "series":
             for i in range(2):
                 api_p = api_page_start + i
-                data = _cached_get(f"{API_BASE}/series?page={api_p}", ttl=0) or {}
-                raw_results = data.get("series") or data.get("results") or []
+                data = _cached_get(f"{API_BASE}/ser?page={api_p}", ttl=0) or {}
+                raw_results = data.get("ser") or data.get("results") or []
                 p_items = [_normalize_catalog_item(it, "series") for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
                 api_data = data
@@ -860,8 +860,8 @@ def home():
         elif category == "anime":
             for i in range(2):
                 api_p = api_page_start + i
-                data = _cached_get(f"{API_BASE}/anime?page={api_p}", ttl=0) or {}
-                raw_results = data.get("anime") or data.get("results") or []
+                data = _cached_get(f"{API_BASE}/ani?page={api_p}", ttl=0) or {}
+                raw_results = data.get("ani") or data.get("results") or []
                 p_items = [_normalize_catalog_item(it, "anime") for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
                 api_data = data
