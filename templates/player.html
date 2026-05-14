@@ -249,7 +249,36 @@
     }
     .watch-bigplay svg { width: 24px; height: 24px; }
   }
+  .watch-loader {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(2px);
+    z-index: 10;
+    opacity: 0;
+    transition: opacity .2s ease;
+    pointer-events: none;
+  }
+  .watch-loader.is-visible {
+    opacity: 1;
+  }
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 3.5px solid rgba(255, 255, 255, 0.1);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: watch-spin .8s linear infinite;
+
+  }
+  @keyframes watch-spin {
+    to { transform: rotate(360deg); }
+  }
 </style>
+
 
 <section class="watch-shell">
   <div class="watch-top">
@@ -277,6 +306,11 @@
       >
         <source src="{{ stream_url }}" {% if mime_type %}type="{{ mime_type }}"{% endif %}>
       </video>
+
+      <div class="watch-loader" id="watchLoader">
+        <div class="spinner"></div>
+      </div>
+
 
       <div class="watch-overlay" id="watchOverlay">
         <button class="watch-bigplay" id="bigPlay" type="button" aria-label="Play">
@@ -325,6 +359,8 @@
   const fullToggle = document.getElementById('fullToggle');
   const watchStage = document.getElementById('watchStage');
   const watchError = document.getElementById('watchError');
+  const watchLoader = document.getElementById('watchLoader');
+
 
   if (!video) return;
 
@@ -386,6 +422,16 @@
   video.addEventListener('timeupdate', updateProgress);
   video.addEventListener('durationchange', updateProgress);
   video.addEventListener('error', showError);
+
+  // Buffering Logic
+  video.addEventListener('waiting', () => watchLoader.classList.add('is-visible'));
+  video.addEventListener('playing', () => watchLoader.classList.remove('is-visible'));
+  video.addEventListener('canplay', () => watchLoader.classList.remove('is-visible'));
+  video.addEventListener('seeking', () => watchLoader.classList.add('is-visible'));
+  video.addEventListener('seeked', () => watchLoader.classList.remove('is-visible'));
+  video.addEventListener('stalled', () => watchLoader.classList.add('is-visible'));
+
+
 
   progressBar.addEventListener('input', () => {
     if (!Number.isFinite(video.duration) || video.duration <= 0) return;
