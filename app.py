@@ -823,7 +823,7 @@ def home():
     try:
         # Determine which endpoints to fetch from based on category
         if category == "all":
-            endpoints = ["movies", "tvshows", "anime"]
+            endpoints = ["movies", "series", "anime"]
             # Fetch one page from each endpoint
             for endpoint in endpoints:
                 api_p = api_page_start
@@ -850,8 +850,8 @@ def home():
         elif category == "series":
             for i in range(2):
                 api_p = api_page_start + i
-                data = _cached_get(f"{API_BASE}/tvshows?page={api_p}", ttl=0) or {}
-                raw_results = data.get("tvshows") or data.get("results") or []
+                data = _cached_get(f"{API_BASE}/series?page={api_p}", ttl=0) or {}
+                raw_results = data.get("series") or data.get("results") or []
                 p_items = [_normalize_catalog_item(it, "series") for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
                 api_data = data
