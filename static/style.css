@@ -259,6 +259,27 @@ img { display: block; max-width: 100%; }
 }
 .btn.ghost:hover { border-color: #3a3a48; }
 
+/* ── category filters ─────────────────────── */
+.category-filters {
+  display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;
+}
+.category-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 13px;
+  border: 1px solid var(--line); color: var(--fg);
+  background: var(--panel-2); cursor: pointer;
+  transition: all .15s ease;
+  text-decoration: none;
+}
+.category-btn:hover {
+  border-color: #3a3a48; background: var(--panel);
+  transform: translateY(-1px);
+}
+.category-btn.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff; border-color: transparent;
+}
+
 /* ── detail ───────────────────────────────── */
 .detail {
   position: relative; border-radius: 22px; overflow: hidden;

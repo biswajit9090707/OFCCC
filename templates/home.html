@@ -11,7 +11,15 @@
 
 <section class="row">
   <div class="flex-between">
-    <h2>Latest Content</h2>
+    <div>
+      <h2>Latest Content</h2>
+      <div class="category-filters">
+        <a href="{{ url_for('home', category='all', page=1) }}" class="category-btn {% if category == 'all' %}active{% endif %}">All</a>
+        <a href="{{ url_for('home', category='movies', page=1) }}" class="category-btn {% if category == 'movies' %}active{% endif %}">Movies</a>
+        <a href="{{ url_for('home', category='series', page=1) }}" class="category-btn {% if category == 'series' %}active{% endif %}">Series</a>
+        <a href="{{ url_for('home', category='anime', page=1) }}" class="category-btn {% if category == 'anime' %}active{% endif %}">Anime</a>
+      </div>
+    </div>
     <span class="muted">Page {{ page }} of {{ total_pages }}</span>
   </div>
   

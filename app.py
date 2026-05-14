@@ -805,6 +805,11 @@ def inject_globals():
 @app.route("/")
 def home():
     user_page = max(1, int(request.args.get("page") or 1))
+    category = (request.args.get("category") or "all").lower()
+    
+    # Validate category
+    if category not in ["all", "movies", "series", "anime"]:
+        category = "all"
     
     # User Page 1 -> API Page 1 & 2
     # User Page 2 -> API Page 3 & 4
@@ -814,21 +819,46 @@ def home():
     total_pages_raw = 10
     
     try:
-        # Fetch two pages worth of content
-        for i in range(2):
-            api_p = api_page_start + i
-            data = _cached_get(f"{API_BASE}/movies?page={api_p}", ttl=0) or {}
-            raw_results = data.get("movies") or data.get("results") or []
-            p_items = [_normalize_catalog_item(it, "movie") for it in raw_results if it.get("tmdb_id")]
-            items_combined.extend(p_items)
-            
-            # Update total pages (divided by 2 since we show 2 per view)
+        # Determine which endpoints to fetch from based on category
+        if category == "all":
+            endpoints = ["movies", "tvshows", "anime"]
+            # Fetch one page from each endpoint
+            for endpoint in endpoints:
+                api_p = api_page_start
+                data = _cached_get(f"{API_BASE}/{endpoint}?page={api_p}", ttl=0) or {}
+                raw_results = data.get(endpoint) or data.get("results") or []
+                default_kind = "movie" if endpoint == "movies" else ("anime" if endpoint == "anime" else "series")
+                p_items = [_normalize_catalog_item(it, default_kind) for it in raw_results if it.get("tmdb_id")]
+                items_combined.extend(p_items)
+            total_pages_raw = 10
+        elif category == "movies":
+            for i in range(2):
+                api_p = api_page_start + i
+                data = _cached_get(f"{API_BASE}/movies?page={api_p}", ttl=0) or {}
+                raw_results = data.get("movies") or data.get("results") or []
+                p_items = [_normalize_catalog_item(it, "movie") for it in raw_results if it.get("tmdb_id")]
+                items_combined.extend(p_items)
+            api_total = int(data.get("total_pages") or data.get("totalPages") or 20)
+            total_pages_raw = (api_total // 2) + (1 if api_total % 2 else 0)
+        elif category == "series":
+            for i in range(2):
+                api_p = api_page_start + i
+                data = _cached_get(f"{API_BASE}/tvshows?page={api_p}", ttl=0) or {}
+                raw_results = data.get("tvshows") or data.get("results") or []
+                p_items = [_normalize_catalog_item(it, "series") for it in raw_results if it.get("tmdb_id")]
+                items_combined.extend(p_items)
+            api_total = int(data.get("total_pages") or data.get("totalPages") or 20)
+            total_pages_raw = (api_total // 2) + (1 if api_total % 2 else 0)
+        elif category == "anime":
+            for i in range(2):
+                api_p = api_page_start + i
+                data = _cached_get(f"{API_BASE}/anime?page={api_p}", ttl=0) or {}
+                raw_results = data.get("anime") or data.get("results") or []
+                p_items = [_normalize_catalog_item(it, "anime") for it in raw_results if it.get("tmdb_id")]
+                items_combined.extend(p_items)
             api_total = int(data.get("total_pages") or data.get("totalPages") or 20)
             total_pages_raw = (api_total // 2) + (1 if api_total % 2 else 0)
 
-        # Sort the combined items to ensure newest are on top (if they have an ID or updated_on)
-        # Note: If no updated_on, we rely on the API's natural descending order
-        # which is preserved during the extend()
     except Exception as e:
         app.logger.error(f"Home fetch failed: {e}")
 
@@ -836,7 +866,8 @@ def home():
         "home.html", 
         items=items_combined, 
         page=user_page, 
-        total_pages=total_pages_raw
+        total_pages=total_pages_raw,
+        category=category
     )
 
 
