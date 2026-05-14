@@ -823,14 +823,13 @@ def home():
     try:
         # Determine which endpoints to fetch from based on category
         if category == "all":
-            endpoints = ["movies", "ser", "ani"]
+            endpoints = [("movies", "movies"), ("tvshows", "series"), ("ani", "anime")]
             # Fetch one page from each endpoint
-            for endpoint in endpoints:
+            for endpoint, kind in endpoints:
                 api_p = api_page_start
-                data = _cached_get(f"{API_BASE}/{endpoint}?page={api_p}", ttl=0) or {}
+                data = _cached_get(f"{API_BASE}/{endpoint}?sort_by=updated_on:desc&page={api_p}&page_size=20", ttl=0) or {}
                 raw_results = data.get(endpoint) or data.get("results") or []
-                default_kind = "movie" if endpoint == "movies" else ("anime" if endpoint == "ani" else "series")
-                p_items = [_normalize_catalog_item(it, default_kind) for it in raw_results if it.get("tmdb_id")]
+                p_items = [_normalize_catalog_item(it, kind) for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
                 if data:
                     api_data = data  # Store for total_pages
@@ -840,7 +839,7 @@ def home():
         elif category == "movies":
             for i in range(2):
                 api_p = api_page_start + i
-                data = _cached_get(f"{API_BASE}/movies?page={api_p}", ttl=0) or {}
+                data = _cached_get(f"{API_BASE}/movies?sort_by=updated_on:desc&page={api_p}&page_size=20", ttl=0) or {}
                 raw_results = data.get("movies") or data.get("results") or []
                 p_items = [_normalize_catalog_item(it, "movie") for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
@@ -850,8 +849,8 @@ def home():
         elif category == "series":
             for i in range(2):
                 api_p = api_page_start + i
-                data = _cached_get(f"{API_BASE}/ser?page={api_p}", ttl=0) or {}
-                raw_results = data.get("ser") or data.get("results") or []
+                data = _cached_get(f"{API_BASE}/tvshows?sort_by=updated_on:desc&page={api_p}&page_size=20", ttl=0) or {}
+                raw_results = data.get("tvshows") or data.get("results") or []
                 p_items = [_normalize_catalog_item(it, "series") for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
                 api_data = data
@@ -860,7 +859,7 @@ def home():
         elif category == "anime":
             for i in range(2):
                 api_p = api_page_start + i
-                data = _cached_get(f"{API_BASE}/ani?page={api_p}", ttl=0) or {}
+                data = _cached_get(f"{API_BASE}/ani?sort_by=updated_on:desc&page={api_p}&page_size=20", ttl=0) or {}
                 raw_results = data.get("ani") or data.get("results") or []
                 p_items = [_normalize_catalog_item(it, "anime") for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
