@@ -10,6 +10,7 @@ import functools
 import json
 import mimetypes
 import os
+import random
 import time
 import sqlite3
 from typing import Any, Dict, List, Optional
@@ -817,6 +818,7 @@ def home():
     
     items_combined = []
     total_pages_raw = 10
+    api_data = {}  # Store latest API response for total_pages
     
     try:
         # Determine which endpoints to fetch from based on category
@@ -830,7 +832,11 @@ def home():
                 default_kind = "movie" if endpoint == "movies" else ("anime" if endpoint == "anime" else "series")
                 p_items = [_normalize_catalog_item(it, default_kind) for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
-            total_pages_raw = 10
+                if data:
+                    api_data = data  # Store for total_pages
+            # For "all" category, estimate total pages based on first endpoint
+            api_total = int(api_data.get("total_pages") or api_data.get("totalPages") or 10)
+            total_pages_raw = api_total
         elif category == "movies":
             for i in range(2):
                 api_p = api_page_start + i
@@ -838,7 +844,8 @@ def home():
                 raw_results = data.get("movies") or data.get("results") or []
                 p_items = [_normalize_catalog_item(it, "movie") for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
-            api_total = int(data.get("total_pages") or data.get("totalPages") or 20)
+                api_data = data
+            api_total = int(api_data.get("total_pages") or api_data.get("totalPages") or 20)
             total_pages_raw = (api_total // 2) + (1 if api_total % 2 else 0)
         elif category == "series":
             for i in range(2):
@@ -847,7 +854,8 @@ def home():
                 raw_results = data.get("tvshows") or data.get("results") or []
                 p_items = [_normalize_catalog_item(it, "series") for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
-            api_total = int(data.get("total_pages") or data.get("totalPages") or 20)
+                api_data = data
+            api_total = int(api_data.get("total_pages") or api_data.get("totalPages") or 20)
             total_pages_raw = (api_total // 2) + (1 if api_total % 2 else 0)
         elif category == "anime":
             for i in range(2):
@@ -856,11 +864,15 @@ def home():
                 raw_results = data.get("anime") or data.get("results") or []
                 p_items = [_normalize_catalog_item(it, "anime") for it in raw_results if it.get("tmdb_id")]
                 items_combined.extend(p_items)
-            api_total = int(data.get("total_pages") or data.get("totalPages") or 20)
+                api_data = data
+            api_total = int(api_data.get("total_pages") or api_data.get("totalPages") or 20)
             total_pages_raw = (api_total // 2) + (1 if api_total % 2 else 0)
 
     except Exception as e:
         app.logger.error(f"Home fetch failed: {e}")
+    
+    # Shuffle items for variety on every refresh
+    random.shuffle(items_combined)
 
     return render_template(
         "home.html", 
