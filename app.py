@@ -179,6 +179,31 @@ def _fetch_ftp_movies():
 
 
 
+def _proxy_http_stream(url: str, filename: str, as_attachment: bool = False) -> Response:
+    """Proxy an external HTTP stream to the client."""
+    try:
+        r = requests.get(url, stream=True, timeout=15)
+        def generate():
+            for chunk in r.iter_content(chunk_size=128 * 1024): # 128KB chunks
+                if chunk:
+                    yield chunk
+        
+        headers = {
+            "Content-Type": r.headers.get("Content-Type", "video/mp4"),
+            "Content-Length": r.headers.get("Content-Length"),
+            "Accept-Ranges": "bytes",
+        }
+        if as_attachment:
+            headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        else:
+            headers["Content-Disposition"] = f'inline; filename="{filename}"'
+            
+        return Response(stream_with_context(generate()), headers=headers, status=r.status_code)
+    except Exception as e:
+        app.logger.error(f"Proxy stream failed: {e}")
+        abort(500)
+
+
 @app.route("/ftp-detail/<int:custom_id>")
 def ftp_movie_detail(custom_id: int):
     """Dynamically fetch metadata for an FTP movie."""
@@ -196,10 +221,8 @@ def ftp_movie_detail(custom_id: int):
         title = movie["title"]
         year = movie["year"]
         try:
-            # We use the OMDB key configured in settings or env
             key = _get_setting("omdb_api_key") or os.getenv("OMDB_API_KEY", "4b9fde6b")
             r = requests.get(f"http://www.omdbapi.com/?t={requests.utils.quote(title)}&y={year}&apikey={key}", timeout=5)
-
             data = r.json()
             if data.get("Response") == "True":
                 meta = {
@@ -207,26 +230,22 @@ def ftp_movie_detail(custom_id: int):
                     "year": data.get("Year"),
                     "rating": float(data.get("imdbRating")) if data.get("imdbRating") != "N/A" else 0.0,
                     "overview": data.get("Plot"),
-                    "poster_url": data.get("Poster") if data.get("Poster") != "N/A" else "",
+                    "poster": data.get("Poster") if data.get("Poster") != "N/A" else "",
                     "genres": [g.strip() for g in data.get("Genre", "").split(",")],
                 }
         except: pass
         
         if not meta:
-            # Fallback if fetch fails
             meta = {
                 "title": movie["title"],
                 "year": movie["year"],
                 "rating": 0.0,
                 "overview": "Information is being retrieved for this FTP movie.",
-                "poster_url": "",
+                "poster": "",
                 "genres": [],
             }
-        
-        # Store in manual memory cache
         _CACHED_RESPONSES[cache_key] = (meta, time.time() + 86400 * 7)
     
-    # Format for the existing movie.html template
     item = {
         "id": custom_id,
         "custom_id": custom_id,
@@ -234,7 +253,7 @@ def ftp_movie_detail(custom_id: int):
         "year": meta["year"],
         "rating": meta["rating"],
         "overview": meta["overview"],
-        "poster": meta["poster_url"],
+        "poster": meta["poster"],
         "genres": meta.get("genres") or [],
         "downloads": [{
             "quality": movie["quality"],
