@@ -169,10 +169,9 @@ def _crawl_ftp_task():
         return
         
     _FTP_CACHE["is_crawling"] = True
-    print("Starting background FTP crawl with metadata fetch...")
+    print("Starting lightweight background FTP crawl...")
     
     movie_map = {}
-    omdb_key = _get_setting("omdb_api_key") or os.getenv("OMDB_API_KEY", "7b049b4b")
     
     for cat in FTP_CATEGORIES:
         url = f"{FTP_BASE}{cat}"
@@ -205,25 +204,14 @@ def _crawl_ftp_task():
                     continue
 
                 if key not in movie_map or rank > movie_map[key]['rank']:
-                    # Proactive Metadata Fetch for Search Results
-                    poster = ""
-                    overview = ""
-                    try:
-                        # Only fetch if we don't have it to save time
-                        meta_r = requests.get(f"http://www.omdbapi.com/?t={requests.utils.quote(title)}&y={year}&apikey={omdb_key}", timeout=3)
-                        meta_d = meta_r.json()
-                        if meta_d.get("Response") == "True":
-                            poster = meta_d.get("Poster") if meta_d.get("Poster") != "N/A" else ""
-                            overview = meta_d.get("Plot") or ""
-                    except: pass
-
                     movie_map[key] = {
                         "title": title, "year": year, "quality": quality,
                         "url": final_url, "rank": rank, "kind": "movie",
                         "is_custom": True, "custom_id": abs(hash(final_url)),
-                        "poster": poster, "overview": overview
+                        "poster": "", "overview": "" # Metadata will be lazy-loaded on detail page
                     }
         except: continue
+
 
     
     _FTP_CACHE["movies"] = list(movie_map.values())
