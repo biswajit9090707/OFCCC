@@ -22,6 +22,8 @@ from flask import (
     render_template, request, session,
     stream_with_context, url_for, make_response
 )
+from bs4 import BeautifulSoup
+
 
 from itsdangerous import BadSignature, URLSafeSerializer
 
@@ -113,13 +115,140 @@ TG_CHANNEL = "ofcmovie"
 TG_CHANNEL_URL = f"https://t.me/{TG_CHANNEL}"
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
-app.config["JSON_SORT_KEYS"] = False
-app.secret_key = os.getenv("SESSION_SECRET") or "ofcmovies@secret#key!2024$dl"
+FTP_BASE = "https://ftp.ctgfun.com/"
+FTP_CATEGORIES = [
+    "English/",
+    "Indian/Hindi%20Movies/",
+    "Indian/South%20Indian%20Movies/",
+    "Others/4K%20MOVIES/",
+    "Others/Asian%20Movie/",
+    "Others/European%20Movies/"
+]
+
+def _get_ftp_quality_rank(q):
+    q = q.lower()
+    ranks = {
+        '2160p': 100, '4k': 100,
+        '1080p': 80, 'bluray': 85,
+        '720p': 70, 'webrip': 75,
+        'hdrip': 65, 'web-dl': 75,
+        'hd': 50, 'hdts': 10, 'hdtc': 5
+    }
+    for k, v in ranks.items():
+        if k in q: return v
+    return 0
+
+def _parse_ftp_name(name):
+    name_clean = requests.utils.unquote(name)
+    name_clean = re.sub(r'\.(mp4|mkv|avi|m4v)$', '', name_clean, flags=re.I)
+    year_match = re.search(r'\.(19|20)\d{2}\.', name_clean)
+    if not year_match: year_match = re.search(r'[(](19|20)\d{2}[)]', name_clean)
+    year = year_match.group(0).strip('.()') if year_match else ""
+    quality_match = re.search(r'(2160p|1080p|720p|4k|HDRip|WEBRip|BluRay|HDTS|HDTC|Web-DL)', name_clean, flags=re.I)
+    quality = quality_match.group(0) if quality_match else "HD"
+    if year:
+        title = name_clean.split(year)[0].replace('.', ' ').replace('(', '').replace(')', '').strip()
+    else:
+        title = name_clean.replace('.', ' ').strip()
+        if quality_match: title = title.split(quality_match.group(0))[0].strip()
+    return title, year, quality
+
+def _fetch_ftp_movies():
+    """Live crawl of FTP server with caching."""
+    cache_key = "ftp_movies_list"
+    cached = _cached_get(cache_key, ttl=3600) # Cache for 1 hour
+    if cached: return cached
+    
+    movie_map = {}
+    for cat in FTP_CATEGORIES:
+        url = f"{FTP_BASE}{cat}"
+        try:
+            r = requests.get(url, timeout=10)
+            if r.status_code != 200: continue
+            soup = BeautifulSoup(r.text, 'html.parser')
+            for a in soup.find_all('a'):
+                href = a.get('href')
+                if not href or href.startswith('?') or href == '../': continue
+                name = href.strip('/')
+                title, year, quality = _parse_ftp_name(name)
+                if not title: continue
+                
+                key = f"{title.lower()}_{year}"
+                rank = _get_ftp_quality_rank(quality)
+                
+                # Check if it's a directory
+                final_url = f"{url}{href}"
+                if href.endswith('/'):
+                    try:
+                        ir = requests.get(final_url, timeout=5)
+                        isoup = BeautifulSoup(ir.text, 'html.parser')
+                        for ia in isoup.find_all('a'):
+                            ihref = ia.get('href')
+                            if ihref and ihref.lower().endswith(('.mp4', '.mkv')):
+                                final_url = f"{final_url}{ihref}"
+                                break
+                    except: continue
+                elif not href.lower().endswith(('.mp4', '.mkv')):
+                    continue
+
+                if key not in movie_map or rank > movie_map[key]['rank']:
+                    movie_map[key] = {
+                        "title": title, "year": year, "quality": quality,
+                        "url": final_url, "rank": rank, "kind": "movie",
+                        "is_custom": True, "custom_id": abs(hash(final_url))
+                    }
+        except: continue
+    
+    results = list(movie_map.values())
+    # Note: we use _cached_get as a manual store since it handles the dictionary
+    _CACHED_RESPONSES[cache_key] = (results, time.time() + 3600)
+    return results
 
 
-@app.route("/google1dceb77e6840a350.html")
-def google_verification():
-    return "google-site-verification: google1dceb77e6840a350.html"
+@app.route("/ftp-detail/<int:custom_id>")
+def ftp_movie_detail(custom_id: int):
+    """Dynamically fetch metadata for an FTP movie."""
+    movies = _fetch_ftp_movies()
+    movie = next((m for m in movies if m["custom_id"] == custom_id), None)
+    if not movie: abort(404)
+    
+    # On-the-fly metadata fetch (Cached)
+    cache_key = f"ftp_meta_{custom_id}"
+    meta = _cached_get(cache_key, ttl=86400 * 7) # Cache meta for 7 days
+    if not meta:
+        # Simple TMDB Search logic (could be improved with a public worker)
+        meta = {
+            "title": movie["title"],
+            "year": movie["year"],
+            "rating": 0.0,
+            "overview": "No overview available for this FTP entry.",
+            "poster_url": "",
+            "backdrop_url": "",
+            "genres": [],
+            "quality": movie["quality"],
+            "downloads": [{"quality": movie["quality"], "size": "", "url": movie["url"]}]
+        }
+        _CACHED_RESPONSES[cache_key] = (meta, time.time() + 86400 * 7)
+    
+    # Format for card/player
+    item = {
+        "id": custom_id,
+        "custom_id": custom_id,
+        "title": meta["title"],
+        "year": meta["year"],
+        "rating": meta["rating"],
+        "overview": meta["overview"],
+        "poster": meta["poster_url"],
+        "downloads": [{
+            "quality": movie["quality"],
+            "size": "",
+            "url": f"/cdl/{make_custom_dl_token(movie['url'], movie['title'], movie['quality'])}"
+        }],
+        "is_custom": True,
+        "kind": "movie",
+        "href": url_for("ftp_movie_detail", custom_id=custom_id)
+    }
+    return render_template("movie.html", item=item)
 
 
 @app.template_filter('from_json')
@@ -567,8 +696,10 @@ def _normalize_catalog_item(item: Dict[str, Any], default_kind: str) -> Dict[str
         "rating": item.get("rating"),
         "poster": _poster(item),
         "kind": kind,
+        "quality": item.get("quality") or "",
         "updated_on": item.get("updated_on") or "",
     }
+
 
 
 def _fetch_latest(endpoint: str, list_keys: List[str], default_kind: str, limit: int = 12) -> List[Dict[str, Any]]:
@@ -887,16 +1018,66 @@ def home():
     except Exception as e:
         app.logger.error(f"Home fetch failed: {e}")
     
-    # Shuffle items for variety on every refresh
+    # ─────────────────────────── INTEGRATE LIVE FTP MOVIES ───────────────────────────
+    try:
+        ftp_all = _fetch_ftp_movies()
+        # Filter by category and paginate in memory
+        ftp_filtered = []
+        if category == "all" or category == "movies":
+            ftp_filtered = ftp_all
+            
+        # Paging in memory
+        limit = 24
+        start_idx = (user_page - 1) * limit
+        ftp_page = ftp_filtered[start_idx:start_idx + limit]
+        
+        for movie in ftp_page:
+            items_combined.append({
+                "tmdb_id": None, # TMDB ID lookup on-the-fly would be slow, using title-based
+                "title": movie["title"],
+                "year": movie["year"],
+                "rating": 0.0,
+                "poster": "", # Will use fallback or lazy lookup
+                "kind": "movie",
+                "is_custom": True,
+                "custom_id": movie["custom_id"],
+                "quality": movie["quality"]
+            })
+    except Exception as e:
+        app.logger.error(f"Live FTP merge failed: {e}")
+
+    # ─────────────────────────── DEDUPLICATE & PRIORITIZE ───────────────────────────
+    seen_titles = {}
+    final_items = []
+    
     random.shuffle(items_combined)
+    
+    for it in items_combined:
+        # Deduplicate by title+year to catch quality upgrades
+        title_key = f"{it['title'].lower()}_{it.get('year')}"
+        is_custom = it.get("is_custom", False)
+        
+        if title_key not in seen_titles:
+            seen_titles[title_key] = it
+            final_items.append(it)
+        else:
+            # Prefer Custom (FTP) over API for quality
+            if is_custom and not seen_titles[title_key].get("is_custom"):
+                for idx, existing in enumerate(final_items):
+                    if f"{existing['title'].lower()}_{existing.get('year')}" == title_key:
+                        final_items[idx] = it
+                        seen_titles[title_key] = it
+                        break
 
     return render_template(
         "home.html", 
-        items=items_combined, 
+        items=final_items, 
         page=user_page, 
         total_pages=total_pages_raw,
         category=category
     )
+
+
 
 
 @app.route("/search")
