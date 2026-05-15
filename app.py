@@ -1100,12 +1100,28 @@ def search():
     try:
         ftp_all = _fetch_ftp_movies()
         q_low = q.lower()
-        # Case-insensitive title match
-        ftp_matches = [m for m in ftp_all if q_low in m["title"].lower()]
         
-        ftp_items = []
+        # If cache is empty, do a small targeted crawl just for this query
+        if not ftp_all:
+             # Fast targeted scan of just the English category
+             try:
+                 r_target = requests.get(f"{FTP_BASE}English/", timeout=5)
+                 s_target = BeautifulSoup(r_target.text, 'html.parser')
+                 for a_t in s_target.find_all('a'):
+                     h_t = a_t.get('href', '')
+                     if q_low in h_t.lower():
+                         t_t, y_t, q_t = _parse_ftp_name(h_t.strip('/'))
+                         final_results.append({
+                             "title": t_t, "year": y_t, "quality": q_t, "kind": "movie",
+                             "is_custom": True, "custom_id": abs(hash(h_t)),
+                             "href": url_for("ftp_movie_detail", custom_id=abs(hash(h_t))),
+                             "poster": "", "rating": 0.0
+                         })
+             except: pass
+
+        ftp_matches = [m for m in ftp_all if q_low in m["title"].lower()]
         for m in ftp_matches:
-            ftp_items.append({
+            final_results.append({
                 "tmdb_id": None,
                 "title": m["title"],
                 "year": m["year"],
@@ -1119,29 +1135,26 @@ def search():
                 "href": url_for("ftp_movie_detail", custom_id=m["custom_id"])
             })
             
-        # Combine: FTP first then API
-        combined = ftp_items + api_results
-        
-        # Deduplicate & Prioritize (FTP > API)
+        # 3. Merge and Deduplicate
         seen_keys = set()
-        for it in combined:
-            # Use title+year as key
-            t_key = f"{it['title'].lower()}_{it.get('year') or ''}"
-            is_ftp = it.get("is_custom", False)
-            
-            if t_key not in seen_keys:
-                final_results.append(it)
-                seen_keys.add(t_key)
-            elif is_ftp:
-                # Replace existing with FTP version
-                for idx, existing in enumerate(final_results):
-                    e_key = f"{existing['title'].lower()}_{existing.get('year') or ''}"
-                    if e_key == t_key:
-                        final_results[idx] = it
-                        break
+        deduped = []
+        
+        # Priority: FTP items first
+        for it in final_results + api_results:
+            key = f"{it['title'].lower()}_{it.get('year') or ''}"
+            if key not in seen_keys:
+                deduped.append(it)
+                seen_keys.add(key)
+        
+        final_results = deduped
+        
     except Exception as e:
         app.logger.error(f"Search FTP merge failed: {e}")
-        final_results = api_results
+        final_results = api_results if api_results else []
+
+    data["results"] = final_results
+    return render_template("search.html", q=q, **data)
+
 
     data["results"] = final_results
     return render_template("search.html", q=q, **data)
