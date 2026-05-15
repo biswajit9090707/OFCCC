@@ -204,11 +204,17 @@ def _proxy_http_stream(url: str, filename: str, as_attachment: bool = False) -> 
         abort(500)
 
 
-@app.route("/ftp-detail/<int:custom_id>")
-def ftp_movie_detail(custom_id: int):
+@app.route("/ftp-detail/<custom_id>")
+def ftp_movie_detail(custom_id: str):
     """Dynamically fetch metadata for an FTP movie."""
+    # Ensure custom_id is treated as string for lookup
+    try:
+        custom_id_int = int(custom_id)
+    except:
+        custom_id_int = 0
+        
     movies = _fetch_ftp_movies()
-    movie = next((m for m in movies if m["custom_id"] == custom_id), None)
+    movie = next((m for m in movies if str(m["custom_id"]) == str(custom_id)), None)
     if not movie:
         abort(404)
     
@@ -217,22 +223,22 @@ def ftp_movie_detail(custom_id: int):
     meta = _cached_get(cache_key, ttl=86400 * 7) # Cache meta for 7 days
     
     if not meta:
-        # Try fetching from OMDB (Free tier)
         title = movie["title"]
         year = movie["year"]
         try:
             key = _get_setting("omdb_api_key") or os.getenv("OMDB_API_KEY", "4b9fde6b")
             r = requests.get(f"http://www.omdbapi.com/?t={requests.utils.quote(title)}&y={year}&apikey={key}", timeout=5)
-            data = r.json()
-            if data.get("Response") == "True":
-                meta = {
-                    "title": data.get("Title"),
-                    "year": data.get("Year"),
-                    "rating": float(data.get("imdbRating")) if data.get("imdbRating") != "N/A" else 0.0,
-                    "overview": data.get("Plot"),
-                    "poster": data.get("Poster") if data.get("Poster") != "N/A" else "",
-                    "genres": [g.strip() for g in data.get("Genre", "").split(",")],
-                }
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("Response") == "True":
+                    meta = {
+                        "title": data.get("Title"),
+                        "year": data.get("Year"),
+                        "rating": float(data.get("imdbRating")) if data.get("imdbRating") != "N/A" else 0.0,
+                        "overview": data.get("Plot"),
+                        "poster": data.get("Poster") if data.get("Poster") != "N/A" else "",
+                        "genres": [g.strip() for g in data.get("Genre", "").split(",")],
+                    }
         except: pass
         
         if not meta:
@@ -240,7 +246,7 @@ def ftp_movie_detail(custom_id: int):
                 "title": movie["title"],
                 "year": movie["year"],
                 "rating": 0.0,
-                "overview": "Information is being retrieved for this FTP movie.",
+                "overview": "Watch this exclusive title directly on our high-speed player.",
                 "poster": "",
                 "genres": [],
             }
