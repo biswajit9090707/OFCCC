@@ -1041,64 +1041,17 @@ def home():
     except Exception as e:
         app.logger.error(f"Home fetch failed: {e}")
     
-    # ─────────────────────────── INTEGRATE LIVE FTP MOVIES ───────────────────────────
-    try:
-        ftp_all = _fetch_ftp_movies()
-        # Filter by category and paginate in memory
-        ftp_filtered = []
-        if category == "all" or category == "movies":
-            ftp_filtered = ftp_all
-            
-        # Paging in memory
-        limit = 24
-        start_idx = (user_page - 1) * limit
-        ftp_page = ftp_filtered[start_idx:start_idx + limit]
-        
-        for movie in ftp_page:
-            items_combined.append({
-                "tmdb_id": None, # TMDB ID lookup on-the-fly would be slow, using title-based
-                "title": movie["title"],
-                "year": movie["year"],
-                "rating": 0.0,
-                "poster": "", # Will use fallback or lazy lookup
-                "kind": "movie",
-                "is_custom": True,
-                "custom_id": movie["custom_id"],
-                "quality": movie["quality"]
-            })
-    except Exception as e:
-        app.logger.error(f"Live FTP merge failed: {e}")
-
-    # ─────────────────────────── DEDUPLICATE & PRIORITIZE ───────────────────────────
-    seen_titles = {}
-    final_items = []
-    
+    # Shuffle items for variety on every refresh
     random.shuffle(items_combined)
-    
-    for it in items_combined:
-        # Deduplicate by title+year to catch quality upgrades
-        title_key = f"{it['title'].lower()}_{it.get('year')}"
-        is_custom = it.get("is_custom", False)
-        
-        if title_key not in seen_titles:
-            seen_titles[title_key] = it
-            final_items.append(it)
-        else:
-            # Prefer Custom (FTP) over API for quality
-            if is_custom and not seen_titles[title_key].get("is_custom"):
-                for idx, existing in enumerate(final_items):
-                    if f"{existing['title'].lower()}_{existing.get('year')}" == title_key:
-                        final_items[idx] = it
-                        seen_titles[title_key] = it
-                        break
 
     return render_template(
         "home.html", 
-        items=final_items, 
+        items=items_combined, 
         page=user_page, 
         total_pages=total_pages_raw,
         category=category
     )
+
 
 
 
@@ -1109,13 +1062,62 @@ def search():
     page = max(1, int(request.args.get("page") or 1))
     if not q:
         return redirect(url_for("home"))
+        
+    # 1. Fetch API results
     data = _normalize_search(_cached_get(
         f"{API_BASE}/search/?query={requests.utils.quote(q)}&page={page}", ttl=120
     ))
-    if page == 1:
-        custom_results = _search_custom_movies(q)
-        data["results"] = custom_results + data["results"]
+    api_results = data.get("results") or []
+    
+    # 2. Fetch FTP results and merge
+    final_results = []
+    try:
+        ftp_all = _fetch_ftp_movies()
+        q_low = q.lower()
+        # Simple match: if query in title
+        ftp_matches = [m for m in ftp_all if q_low in m["title"].lower()]
+        
+        # Convert to display format
+        ftp_items = []
+        for m in ftp_matches:
+            ftp_items.append({
+                "tmdb_id": None,
+                "title": m["title"],
+                "year": m["year"],
+                "rating": 0.0,
+                "poster": "",
+                "kind": "movie",
+                "is_custom": True,
+                "custom_id": m["custom_id"],
+                "quality": m["quality"]
+            })
+            
+        # Combine
+        combined = ftp_items + api_results
+        
+        # Deduplicate & Prioritize (FTP > API)
+        seen_titles = {}
+        for it in combined:
+            title_key = f"{it['title'].lower()}_{it.get('year')}"
+            is_ftp = it.get("is_custom", False)
+            
+            if title_key not in seen_titles:
+                seen_titles[title_key] = it
+                final_results.append(it)
+            elif is_ftp:
+                # Replace API with FTP
+                for idx, existing in enumerate(final_results):
+                    if f"{existing['title'].lower()}_{existing.get('year')}" == title_key:
+                        final_results[idx] = it
+                        seen_titles[title_key] = it
+                        break
+    except Exception as e:
+        app.logger.error(f"Search FTP merge failed: {e}")
+        final_results = api_results
+
+    data["results"] = final_results
     return render_template("search.html", q=q, **data)
+
 
 
 @app.route("/api/live-search")
