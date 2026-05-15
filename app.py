@@ -155,7 +155,7 @@ def _parse_ftp_name(name):
         if quality_match: title = title.split(quality_match.group(0))[0].strip()
     return title, year, quality
 
-# Global memory store for FTP movies (Loaded from JSON)
+# Global memory store for FTP movies (Sanitized)
 _FTP_LIST = []
 
 def _load_ftp_json():
@@ -164,13 +164,36 @@ def _load_ftp_json():
         path = os.path.join(os.path.dirname(__file__), "ftp_movies.json")
         if os.path.exists(path):
             with open(path, "r") as f:
-                _FTP_LIST = json.load(f)
-            print(f"Successfully loaded {len(_FTP_LIST)} FTP movies from JSON.")
+                raw_data = json.load(f)
+            
+            sanitized = []
+            for i, item in enumerate(raw_data):
+                # Handle new format: "title" is filename, "download_link" is url
+                raw_title = item.get("title", "")
+                url = item.get("download_link") or item.get("url", "")
+                if not url: continue
+                
+                # Extract clean metadata from filename
+                clean_t, year, quality = _parse_ftp_name(raw_title)
+                
+                sanitized.append({
+                    "custom_id": str(i + 1), # Simple numeric ID as string
+                    "title": clean_t or raw_title,
+                    "year": year,
+                    "quality": quality,
+                    "url": url,
+                    "category": item.get("category", "Movie"),
+                    "kind": "movie",
+                    "is_custom": True
+                })
+            _FTP_LIST = sanitized
+            print(f"Successfully loaded {len(_FTP_LIST)} FTP movies from JSON with simple IDs.")
     except Exception as e:
         print(f"Error loading FTP JSON: {e}")
 
 # Load on startup
 _load_ftp_json()
+
 
 def _fetch_ftp_movies():
     """Returns the pre-loaded FTP movie list."""
