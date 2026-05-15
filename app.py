@@ -250,8 +250,9 @@ def ftp_movie_detail(custom_id: int):
         year = movie["year"]
         try:
             # We use the OMDB key configured in settings or env
-            key = _get_setting("omdb_api_key") or os.getenv("OMDB_API_KEY", "7b049b4b")
+            key = _get_setting("omdb_api_key") or os.getenv("OMDB_API_KEY", "4b9fde6b")
             r = requests.get(f"http://www.omdbapi.com/?t={requests.utils.quote(title)}&y={year}&apikey={key}", timeout=5)
+
             data = r.json()
             if data.get("Response") == "True":
                 meta = {
@@ -1099,10 +1100,9 @@ def search():
     try:
         ftp_all = _fetch_ftp_movies()
         q_low = q.lower()
-        # Simple match: if query in title
+        # Case-insensitive title match
         ftp_matches = [m for m in ftp_all if q_low in m["title"].lower()]
         
-        # Convert to display format
         ftp_items = []
         for m in ftp_matches:
             ftp_items.append({
@@ -1118,27 +1118,26 @@ def search():
                 "quality": m["quality"],
                 "href": url_for("ftp_movie_detail", custom_id=m["custom_id"])
             })
-
-
             
-        # Combine
+        # Combine: FTP first then API
         combined = ftp_items + api_results
         
         # Deduplicate & Prioritize (FTP > API)
-        seen_titles = {}
+        seen_keys = set()
         for it in combined:
-            title_key = f"{it['title'].lower()}_{it.get('year')}"
+            # Use title+year as key
+            t_key = f"{it['title'].lower()}_{it.get('year') or ''}"
             is_ftp = it.get("is_custom", False)
             
-            if title_key not in seen_titles:
-                seen_titles[title_key] = it
+            if t_key not in seen_keys:
                 final_results.append(it)
+                seen_keys.add(t_key)
             elif is_ftp:
-                # Replace API with FTP
+                # Replace existing with FTP version
                 for idx, existing in enumerate(final_results):
-                    if f"{existing['title'].lower()}_{existing.get('year')}" == title_key:
+                    e_key = f"{existing['title'].lower()}_{existing.get('year') or ''}"
+                    if e_key == t_key:
                         final_results[idx] = it
-                        seen_titles[title_key] = it
                         break
     except Exception as e:
         app.logger.error(f"Search FTP merge failed: {e}")
