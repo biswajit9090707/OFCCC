@@ -23,7 +23,7 @@ from flask import (
     stream_with_context, url_for, make_response
 )
 from bs4 import BeautifulSoup
-import threading
+
 
 
 
@@ -155,80 +155,27 @@ def _parse_ftp_name(name):
         if quality_match: title = title.split(quality_match.group(0))[0].strip()
     return title, year, quality
 
-# Global memory store for FTP movies
-_FTP_CACHE = {
-    "movies": [],
-    "last_updated": 0,
-    "is_crawling": False
-}
+# Global memory store for FTP movies (Loaded from JSON)
+_FTP_LIST = []
 
-def _crawl_ftp_task():
-    """Background task to crawl the FTP server."""
-    global _FTP_CACHE
-    if _FTP_CACHE["is_crawling"]:
-        return
-        
-    _FTP_CACHE["is_crawling"] = True
-    print("Starting lightweight background FTP crawl...")
-    
-    movie_map = {}
-    
-    for cat in FTP_CATEGORIES:
-        url = f"{FTP_BASE}{cat}"
-        try:
-            r = requests.get(url, timeout=10)
-            if r.status_code != 200: continue
-            soup = BeautifulSoup(r.text, 'html.parser')
-            for a in soup.find_all('a'):
-                href = a.get('href')
-                if not href or href.startswith('?') or href == '../': continue
-                name = href.strip('/')
-                title, year, quality = _parse_ftp_name(name)
-                if not title: continue
-                
-                key = f"{title.lower()}_{year}"
-                rank = _get_ftp_quality_rank(quality)
-                
-                final_url = f"{url}{href}"
-                if href.endswith('/'):
-                    try:
-                        ir = requests.get(final_url, timeout=5)
-                        isoup = BeautifulSoup(ir.text, 'html.parser')
-                        for ia in isoup.find_all('a'):
-                            ihref = ia.get('href')
-                            if ihref and ihref.lower().endswith(('.mp4', '.mkv')):
-                                final_url = f"{final_url}{ihref}"
-                                break
-                    except: continue
-                elif not href.lower().endswith(('.mp4', '.mkv')):
-                    continue
+def _load_ftp_json():
+    global _FTP_LIST
+    try:
+        path = os.path.join(os.path.dirname(__file__), "ftp_movies.json")
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                _FTP_LIST = json.load(f)
+            print(f"Successfully loaded {len(_FTP_LIST)} FTP movies from JSON.")
+    except Exception as e:
+        print(f"Error loading FTP JSON: {e}")
 
-                if key not in movie_map or rank > movie_map[key]['rank']:
-                    movie_map[key] = {
-                        "title": title, "year": year, "quality": quality,
-                        "url": final_url, "rank": rank, "kind": "movie",
-                        "is_custom": True, "custom_id": abs(hash(final_url)),
-                        "poster": "", "overview": "" # Metadata will be lazy-loaded on detail page
-                    }
-        except: continue
-
-
-    
-    _FTP_CACHE["movies"] = list(movie_map.values())
-    _FTP_CACHE["last_updated"] = time.time()
-    _FTP_CACHE["is_crawling"] = False
-    print(f"Background crawl finished. Found {len(_FTP_CACHE['movies'])} movies.")
+# Load on startup
+_load_ftp_json()
 
 def _fetch_ftp_movies():
     """Returns the pre-loaded FTP movie list."""
-    # If cache is very old (1 hour), trigger a background refresh
-    if time.time() - _FTP_CACHE["last_updated"] > 3600:
-        threading.Thread(target=_crawl_ftp_task, daemon=True).start()
-    
-    return _FTP_CACHE["movies"]
+    return _FTP_LIST
 
-# Start first crawl on app load
-threading.Thread(target=_crawl_ftp_task, daemon=True).start()
 
 
 
