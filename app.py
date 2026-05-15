@@ -169,9 +169,11 @@ def _crawl_ftp_task():
         return
         
     _FTP_CACHE["is_crawling"] = True
-    print("Starting background FTP crawl...")
+    print("Starting background FTP crawl with metadata fetch...")
     
     movie_map = {}
+    omdb_key = _get_setting("omdb_api_key") or os.getenv("OMDB_API_KEY", "7b049b4b")
+    
     for cat in FTP_CATEGORIES:
         url = f"{FTP_BASE}{cat}"
         try:
@@ -203,12 +205,26 @@ def _crawl_ftp_task():
                     continue
 
                 if key not in movie_map or rank > movie_map[key]['rank']:
+                    # Proactive Metadata Fetch for Search Results
+                    poster = ""
+                    overview = ""
+                    try:
+                        # Only fetch if we don't have it to save time
+                        meta_r = requests.get(f"http://www.omdbapi.com/?t={requests.utils.quote(title)}&y={year}&apikey={omdb_key}", timeout=3)
+                        meta_d = meta_r.json()
+                        if meta_d.get("Response") == "True":
+                            poster = meta_d.get("Poster") if meta_d.get("Poster") != "N/A" else ""
+                            overview = meta_d.get("Plot") or ""
+                    except: pass
+
                     movie_map[key] = {
                         "title": title, "year": year, "quality": quality,
                         "url": final_url, "rank": rank, "kind": "movie",
-                        "is_custom": True, "custom_id": abs(hash(final_url))
+                        "is_custom": True, "custom_id": abs(hash(final_url)),
+                        "poster": poster, "overview": overview
                     }
         except: continue
+
     
     _FTP_CACHE["movies"] = list(movie_map.values())
     _FTP_CACHE["last_updated"] = time.time()
@@ -1106,13 +1122,15 @@ def search():
                 "title": m["title"],
                 "year": m["year"],
                 "rating": 0.0,
-                "poster": "",
+                "poster": m.get("poster") or "",
+                "overview": m.get("overview") or "",
                 "kind": "movie",
                 "is_custom": True,
                 "custom_id": m["custom_id"],
                 "quality": m["quality"],
                 "href": url_for("ftp_movie_detail", custom_id=m["custom_id"])
             })
+
 
             
         # Combine
@@ -1148,7 +1166,30 @@ def live_search():
     q = (request.args.get("q") or "").strip()
     if len(q) < 2:
         return jsonify({"results": []})
-    return jsonify({"results": _live_search_results(q, limit=8)})
+    
+    # API Results
+    api_results = _live_search_results(q, limit=8)
+    
+    # FTP Results
+    ftp_results = []
+    try:
+        ftp_all = _fetch_ftp_movies()
+        q_low = q.lower()
+        matches = [m for m in ftp_all if q_low in m["title"].lower()][:5]
+        for m in matches:
+            ftp_results.append({
+                "title": f"{m['title']} ({m['quality']})",
+                "year": m["year"],
+                "tmdb_id": None,
+                "poster": m.get("poster") or "",
+                "is_custom": True,
+                "custom_id": m["custom_id"],
+                "href": url_for("ftp_movie_detail", custom_id=m["custom_id"])
+            })
+    except: pass
+    
+    return jsonify({"results": ftp_results + api_results})
+
 
 
 @app.route("/title/<int:tmdb_id>")
