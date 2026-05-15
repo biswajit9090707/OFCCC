@@ -23,6 +23,8 @@ from flask import (
     stream_with_context, url_for, make_response
 )
 from bs4 import BeautifulSoup
+import threading
+
 
 
 from itsdangerous import BadSignature, URLSafeSerializer
@@ -153,11 +155,21 @@ def _parse_ftp_name(name):
         if quality_match: title = title.split(quality_match.group(0))[0].strip()
     return title, year, quality
 
-def _fetch_ftp_movies():
-    """Live crawl of FTP server with caching."""
-    cache_key = "ftp_movies_list"
-    cached = _cached_get(cache_key, ttl=3600) # Cache for 1 hour
-    if cached: return cached
+# Global memory store for FTP movies
+_FTP_CACHE = {
+    "movies": [],
+    "last_updated": 0,
+    "is_crawling": False
+}
+
+def _crawl_ftp_task():
+    """Background task to crawl the FTP server."""
+    global _FTP_CACHE
+    if _FTP_CACHE["is_crawling"]:
+        return
+        
+    _FTP_CACHE["is_crawling"] = True
+    print("Starting background FTP crawl...")
     
     movie_map = {}
     for cat in FTP_CATEGORIES:
@@ -176,7 +188,6 @@ def _fetch_ftp_movies():
                 key = f"{title.lower()}_{year}"
                 rank = _get_ftp_quality_rank(quality)
                 
-                # Check if it's a directory
                 final_url = f"{url}{href}"
                 if href.endswith('/'):
                     try:
@@ -199,10 +210,22 @@ def _fetch_ftp_movies():
                     }
         except: continue
     
-    results = list(movie_map.values())
-    # Note: we use _cached_get as a manual store since it handles the dictionary
-    _CACHED_RESPONSES[cache_key] = (results, time.time() + 3600)
-    return results
+    _FTP_CACHE["movies"] = list(movie_map.values())
+    _FTP_CACHE["last_updated"] = time.time()
+    _FTP_CACHE["is_crawling"] = False
+    print(f"Background crawl finished. Found {len(_FTP_CACHE['movies'])} movies.")
+
+def _fetch_ftp_movies():
+    """Returns the pre-loaded FTP movie list."""
+    # If cache is very old (1 hour), trigger a background refresh
+    if time.time() - _FTP_CACHE["last_updated"] > 3600:
+        threading.Thread(target=_crawl_ftp_task, daemon=True).start()
+    
+    return _FTP_CACHE["movies"]
+
+# Start first crawl on app load
+threading.Thread(target=_crawl_ftp_task, daemon=True).start()
+
 
 
 @app.route("/ftp-detail/<int:custom_id>")
