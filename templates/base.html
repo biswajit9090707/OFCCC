@@ -10,6 +10,11 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+<div id="loading-bar"></div>
+<div class="page-loader" id="global-loader">
+  <div class="spinner-large"></div>
+</div>
+
 <header class="topbar">
   <a class="brand" href="{{ url_for('home') }}">
     <span class="brand-mark">></span>
@@ -201,12 +206,45 @@
     }
   }, true);
 
-  // Global Button Loading State
+  // Global Buffering Logic
+  const loadingBar = document.getElementById('loading-bar');
+  const globalLoader = document.getElementById('global-loader');
+
+  function startBuffering() {
+    loadingBar.classList.remove('done');
+    loadingBar.classList.add('active');
+    globalLoader.classList.add('active');
+  }
+
+  window.addEventListener('beforeunload', () => {
+    startBuffering();
+  });
+
+  // Target search forms (Main search and Hero search)
+  document.querySelectorAll('form').forEach(f => {
+    f.addEventListener('submit', (e) => {
+      // If form is valid, show buffering
+      if (f.checkValidity()) {
+        startBuffering();
+      }
+    });
+  });
+
+  // Target all navigational clicks
   document.addEventListener('click', e => {
-    const btn = e.target.closest('.btn, .pill, .dl-cta');
-    if (btn && !btn.hasAttribute('target') && !btn.classList.contains('dl-back')) {
-      // Show loading for internal links (stream, download, detail buttons)
-      btn.classList.add('is-loading');
+    // 1. Buttons, Cards, Tabs, Pagers, etc.
+    const navItem = e.target.closest('.card, .btn, .category-btn, .tab, .pill, .dl-cta, .pagination a');
+    
+    if (navItem && !navItem.hasAttribute('target') && !navItem.classList.contains('dl-back')) {
+      const href = navItem.getAttribute('href');
+      // Only buffer if it's an actual navigation link
+      if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+        startBuffering();
+        // Add specific loading class to buttons if they are styled for it
+        if (navItem.classList.contains('btn') || navItem.classList.contains('pill') || navItem.classList.contains('dl-cta')) {
+           navItem.classList.add('is-loading');
+        }
+      }
     }
   });
 })();

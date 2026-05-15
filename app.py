@@ -117,87 +117,9 @@ TG_CHANNEL = "ofcmovie"
 TG_CHANNEL_URL = f"https://t.me/{TG_CHANNEL}"
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
-FTP_BASE = "https://ftp.ctgfun.com/"
-FTP_CATEGORIES = [
-    "English/",
-    "Indian/Hindi%20Movies/",
-    "Indian/South%20Indian%20Movies/",
-    "Others/4K%20MOVIES/",
-    "Others/Asian%20Movie/",
-    "Others/European%20Movies/"
-]
-
-def _get_ftp_quality_rank(q):
-    q = q.lower()
-    ranks = {
-        '2160p': 100, '4k': 100,
-        '1080p': 80, 'bluray': 85,
-        '720p': 70, 'webrip': 75,
-        'hdrip': 65, 'web-dl': 75,
-        'hd': 50, 'hdts': 10, 'hdtc': 5
-    }
-    for k, v in ranks.items():
-        if k in q: return v
-    return 0
-
-def _parse_ftp_name(name):
-    name_clean = requests.utils.unquote(name)
-    name_clean = re.sub(r'\.(mp4|mkv|avi|m4v)$', '', name_clean, flags=re.I)
-    year_match = re.search(r'\.(19|20)\d{2}\.', name_clean)
-    if not year_match: year_match = re.search(r'[(](19|20)\d{2}[)]', name_clean)
-    year = year_match.group(0).strip('.()') if year_match else ""
-    quality_match = re.search(r'(2160p|1080p|720p|4k|HDRip|WEBRip|BluRay|HDTS|HDTC|Web-DL)', name_clean, flags=re.I)
-    quality = quality_match.group(0) if quality_match else "HD"
-    if year:
-        title = name_clean.split(year)[0].replace('.', ' ').replace('(', '').replace(')', '').strip()
-    else:
-        title = name_clean.replace('.', ' ').strip()
-        if quality_match: title = title.split(quality_match.group(0))[0].strip()
-    return title, year, quality
-
-# Global memory store for FTP movies (Sanitized)
-_FTP_LIST = []
-
-def _load_ftp_json():
-    global _FTP_LIST
-    try:
-        path = os.path.join(os.path.dirname(__file__), "ftp_movies.json")
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                raw_data = json.load(f)
-            
-            sanitized = []
-            for i, item in enumerate(raw_data):
-                # Handle new format: "title" is filename, "download_link" is url
-                raw_title = item.get("title", "")
-                url = item.get("download_link") or item.get("url", "")
-                if not url: continue
-                
-                # Extract clean metadata from filename
-                clean_t, year, quality = _parse_ftp_name(raw_title)
-                
-                sanitized.append({
-                    "custom_id": str(i + 1), # Simple numeric ID as string
-                    "title": clean_t or raw_title,
-                    "year": year,
-                    "quality": quality,
-                    "url": url,
-                    "category": item.get("category", "Movie"),
-                    "kind": "movie",
-                    "is_custom": True
-                })
-            _FTP_LIST = sanitized
-            print(f"Successfully loaded {len(_FTP_LIST)} FTP movies from JSON with simple IDs.")
-    except Exception as e:
-        print(f"Error loading FTP JSON: {e}")
-
-# Load on startup
-_load_ftp_json()
 
 
-def _fetch_ftp_movies():
-    """Returns the pre-loaded FTP movie list."""
-    return _FTP_LIST
+
 
 
 
@@ -227,72 +149,7 @@ def _proxy_http_stream(url: str, filename: str, as_attachment: bool = False) -> 
         abort(500)
 
 
-@app.route("/ftp-detail/<custom_id>")
-def ftp_movie_detail(custom_id: str):
-    """Dynamically fetch metadata for an FTP movie."""
-    # Ensure custom_id is treated as string for lookup
-    try:
-        custom_id_int = int(custom_id)
-    except:
-        custom_id_int = 0
-        
-    movies = _fetch_ftp_movies()
-    movie = next((m for m in movies if str(m["custom_id"]) == str(custom_id)), None)
-    if not movie:
-        abort(404)
-    
-    # On-the-fly metadata fetch (Cached)
-    cache_key = f"ftp_meta_{custom_id}"
-    meta = _cached_get(cache_key, ttl=86400 * 7) # Cache meta for 7 days
-    
-    if not meta:
-        title = movie["title"]
-        year = movie["year"]
-        try:
-            key = _get_setting("omdb_api_key") or os.getenv("OMDB_API_KEY", "4b9fde6b")
-            r = requests.get(f"http://www.omdbapi.com/?t={requests.utils.quote(title)}&y={year}&apikey={key}", timeout=5)
-            if r.status_code == 200:
-                data = r.json()
-                if data.get("Response") == "True":
-                    meta = {
-                        "title": data.get("Title"),
-                        "year": data.get("Year"),
-                        "rating": float(data.get("imdbRating")) if data.get("imdbRating") != "N/A" else 0.0,
-                        "overview": data.get("Plot"),
-                        "poster": data.get("Poster") if data.get("Poster") != "N/A" else "",
-                        "genres": [g.strip() for g in data.get("Genre", "").split(",")],
-                    }
-        except: pass
-        
-        if not meta:
-            meta = {
-                "title": movie["title"],
-                "year": movie["year"],
-                "rating": 0.0,
-                "overview": "Watch this exclusive title directly on our high-speed player.",
-                "poster": "",
-                "genres": [],
-            }
-        _CACHED_RESPONSES[cache_key] = (meta, time.time() + 86400 * 7)
-    
-    item = {
-        "id": custom_id,
-        "custom_id": custom_id,
-        "title": meta["title"],
-        "year": meta["year"],
-        "rating": meta["rating"],
-        "overview": meta["overview"],
-        "poster": meta["poster"],
-        "genres": meta.get("genres") or [],
-        "downloads": [{
-            "quality": movie["quality"],
-            "size": "",
-            "url": f"/cdl/{make_custom_dl_token(movie['url'], movie['title'], movie['quality'])}"
-        }],
-        "is_custom": True,
-        "kind": "movie"
-    }
-    return render_template("movie.html", item=item)
+
 
 
 @app.template_filter('from_json')
@@ -1077,64 +934,17 @@ def home():
 
 
 
+
 @app.route("/search")
 def search():
     q = (request.args.get("q") or "").strip()
     page = max(1, int(request.args.get("page") or 1))
     if not q:
         return redirect(url_for("home"))
-        
-    # 1. Fetch API results
     data = _normalize_search(_cached_get(
         f"{API_BASE}/search/?query={requests.utils.quote(q)}&page={page}", ttl=120
     ))
-    api_results = data.get("results") or []
-    
-    # 2. Filter FTP results from local JSON
-    final_results = []
-    try:
-        ftp_all = _fetch_ftp_movies()
-        q_low = q.lower()
-        
-        # Filter local JSON for matches
-        for m in ftp_all:
-            if q_low in m["title"].lower():
-                final_results.append({
-                    "tmdb_id": None,
-                    "title": m["title"],
-                    "year": m["year"],
-                    "rating": 0.0,
-                    "poster": m.get("poster") or "",
-                    "overview": m.get("overview") or "",
-                    "kind": "movie",
-                    "is_custom": True,
-                    "custom_id": m["custom_id"],
-                    "quality": m["quality"],
-                    "href": url_for("ftp_movie_detail", custom_id=m["custom_id"])
-                })
-            
-        # 3. Merge and Deduplicate (FTP takes priority)
-        seen_keys = set()
-        deduped = []
-        
-        # Priority: FTP items first
-        for it in final_results + api_results:
-            # Create a unique key based on title and year
-            title_clean = "".join(filter(str.isalnum, it["title"].lower()))
-            key = f"{title_clean}_{it.get('year') or ''}"
-            if key not in seen_keys:
-                deduped.append(it)
-                seen_keys.add(key)
-        
-        final_results = deduped
-        
-    except Exception as e:
-        app.logger.error(f"Search FTP merge failed: {e}")
-        final_results = api_results if api_results else []
-
-    data["results"] = final_results
     return render_template("search.html", q=q, **data)
-
 
 
 @app.route("/api/live-search")
@@ -1142,29 +952,7 @@ def live_search():
     q = (request.args.get("q") or "").strip()
     if len(q) < 2:
         return jsonify({"results": []})
-    
-    # API Results
-    api_results = _live_search_results(q, limit=8)
-    
-    # FTP Results
-    ftp_results = []
-    try:
-        ftp_all = _fetch_ftp_movies()
-        q_low = q.lower()
-        matches = [m for m in ftp_all if q_low in m["title"].lower()][:5]
-        for m in matches:
-            ftp_results.append({
-                "title": f"{m['title']} ({m['quality']})",
-                "year": m["year"],
-                "tmdb_id": None,
-                "poster": m.get("poster") or "",
-                "is_custom": True,
-                "custom_id": m["custom_id"],
-                "href": url_for("ftp_movie_detail", custom_id=m["custom_id"])
-            })
-    except: pass
-    
-    return jsonify({"results": ftp_results + api_results})
+    return jsonify({"results": _live_search_results(q, limit=8)})
 
 
 
