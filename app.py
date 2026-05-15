@@ -233,27 +233,48 @@ def ftp_movie_detail(custom_id: int):
     """Dynamically fetch metadata for an FTP movie."""
     movies = _fetch_ftp_movies()
     movie = next((m for m in movies if m["custom_id"] == custom_id), None)
-    if not movie: abort(404)
+    if not movie:
+        abort(404)
     
     # On-the-fly metadata fetch (Cached)
     cache_key = f"ftp_meta_{custom_id}"
     meta = _cached_get(cache_key, ttl=86400 * 7) # Cache meta for 7 days
+    
     if not meta:
-        # Simple TMDB Search logic (could be improved with a public worker)
-        meta = {
-            "title": movie["title"],
-            "year": movie["year"],
-            "rating": 0.0,
-            "overview": "No overview available for this FTP entry.",
-            "poster_url": "",
-            "backdrop_url": "",
-            "genres": [],
-            "quality": movie["quality"],
-            "downloads": [{"quality": movie["quality"], "size": "", "url": movie["url"]}]
-        }
+        # Try fetching from OMDB (Free tier)
+        title = movie["title"]
+        year = movie["year"]
+        try:
+            # We use the OMDB key configured in settings or env
+            key = _get_setting("omdb_api_key") or os.getenv("OMDB_API_KEY", "7b049b4b")
+            r = requests.get(f"http://www.omdbapi.com/?t={requests.utils.quote(title)}&y={year}&apikey={key}", timeout=5)
+            data = r.json()
+            if data.get("Response") == "True":
+                meta = {
+                    "title": data.get("Title"),
+                    "year": data.get("Year"),
+                    "rating": float(data.get("imdbRating")) if data.get("imdbRating") != "N/A" else 0.0,
+                    "overview": data.get("Plot"),
+                    "poster_url": data.get("Poster") if data.get("Poster") != "N/A" else "",
+                    "genres": [g.strip() for g in data.get("Genre", "").split(",")],
+                }
+        except: pass
+        
+        if not meta:
+            # Fallback if fetch fails
+            meta = {
+                "title": movie["title"],
+                "year": movie["year"],
+                "rating": 0.0,
+                "overview": "Information is being retrieved for this FTP movie.",
+                "poster_url": "",
+                "genres": [],
+            }
+        
+        # Store in manual memory cache
         _CACHED_RESPONSES[cache_key] = (meta, time.time() + 86400 * 7)
     
-    # Format for card/player
+    # Format for the existing movie.html template
     item = {
         "id": custom_id,
         "custom_id": custom_id,
@@ -262,14 +283,14 @@ def ftp_movie_detail(custom_id: int):
         "rating": meta["rating"],
         "overview": meta["overview"],
         "poster": meta["poster_url"],
+        "genres": meta.get("genres") or [],
         "downloads": [{
             "quality": movie["quality"],
             "size": "",
             "url": f"/cdl/{make_custom_dl_token(movie['url'], movie['title'], movie['quality'])}"
         }],
         "is_custom": True,
-        "kind": "movie",
-        "href": url_for("ftp_movie_detail", custom_id=custom_id)
+        "kind": "movie"
     }
     return render_template("movie.html", item=item)
 
@@ -1089,8 +1110,10 @@ def search():
                 "kind": "movie",
                 "is_custom": True,
                 "custom_id": m["custom_id"],
-                "quality": m["quality"]
+                "quality": m["quality"],
+                "href": url_for("ftp_movie_detail", custom_id=m["custom_id"])
             })
+
             
         # Combine
         combined = ftp_items + api_results
