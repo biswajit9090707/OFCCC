@@ -622,6 +622,9 @@ def _normalize_search(data: Dict[str, Any] | None) -> Dict[str, Any]:
         return {"results": [], "page": 1, "total_pages": 1}
     out: List[Dict[str, Any]] = []
     for item in data.get("results", []) or []:
+        title = (item.get("title") or item.get("name") or "").lower()
+        if "ftp" in title:
+            continue
         out.append({
             "tmdb_id": item.get("tmdb_id"),
             "title": item.get("title") or item.get("name"),
@@ -711,11 +714,17 @@ def _live_search_results(q: str, limit: int = 8) -> List[Dict[str, Any]]:
     seen: set[str] = set()
 
     def add_item(item: Dict[str, Any]) -> None:
+        title = (item.get("title") or "").lower()
         href = item.get("href") or (
             url_for("title", tmdb_id=item["tmdb_id"]) if item.get("tmdb_id") else ""
         )
         if not href:
             return
+        
+        # Proactive FTP Filter: Skip if title or URL contains FTP signatures
+        if "ftp" in title or "ftp" in href.lower() or "ctgfun" in href.lower():
+            return
+
         key = href
         if key in seen:
             return
