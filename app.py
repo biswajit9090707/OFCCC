@@ -654,50 +654,49 @@ def _scrape_ftp_section(section: str) -> List[Dict[str, Any]]:
 
 
 def _get_all_ftp_entries() -> List[Dict[str, Any]]:
-    """Return combined FTP entries from all sections (cached, deduplicated by best quality)."""
+    """Return combined FTP entries from all sections (cached)."""
     cache_key = "__ftp_all__"
     now = time.time()
     hit = _ftp_cache.get(cache_key)
     if hit and now - hit[0] < 600:
         return hit[1]
     
-    # Quality ranking to keep the best one per title
-    Q_RANK = {"4K": 10, "2160P": 9, "1080P": 8, "720P": 7, "WEB-DL": 6, "WEBRIP": 5, "BLURAY": 4, "BRRIP": 3, "DVDRIP": 2, "480P": 1, "HDTS": -1, "HDCAM": -2}
-    
-    best_entries: Dict[str, Dict[str, Any]] = {}
+    combined = []
     
     for section, kind, *_ in FTP_SECTIONS:
         for entry in _scrape_ftp_section(section):
             entry["kind"] = kind
-            title_key = entry["title"].lower()
-            q_str = entry.get("quality", "").upper()
-            rank = Q_RANK.get(q_str, 0)
-            
-            if title_key not in best_entries:
-                best_entries[title_key] = entry
-            else:
-                existing_q = best_entries[title_key].get("quality", "").upper()
-                existing_rank = Q_RANK.get(existing_q, 0)
-                if rank > existing_rank:
-                    best_entries[title_key] = entry
+            combined.append(entry)
 
-    combined = list(best_entries.values())
     _ftp_cache[cache_key] = (now, combined)
     return combined
 
 
 def _search_ftp_entries(q: str, limit: int = 8) -> List[Dict[str, Any]]:
-    """Search FTP entries by title keyword — fast in-memory after first load."""
+    """Search FTP entries by title keyword and return the best quality per title."""
     if not q or len(q) < 2:
         return []
     q_lower = q.lower()
-    results = []
+    
+    Q_RANK = {"4K": 10, "2160P": 9, "1080P": 8, "720P": 7, "WEB-DL": 6, "WEBRIP": 5, "BLURAY": 4, "BRRIP": 3, "DVDRIP": 2, "480P": 1, "HDTS": -1, "HDCAM": -2}
+    best_matches: Dict[str, Dict[str, Any]] = {}
+    
     for entry in _get_all_ftp_entries():
-        if q_lower in entry["title"].lower():
-            results.append(entry)
-            if len(results) >= limit:
-                break
-    return results
+        title = entry["title"]
+        if q_lower in title.lower():
+            t_key = title.lower()
+            q_str = entry.get("quality", "").upper()
+            rank = Q_RANK.get(q_str, 0)
+            
+            if t_key not in best_matches:
+                best_matches[t_key] = entry
+            else:
+                existing_q = best_matches[t_key].get("quality", "").upper()
+                if rank > Q_RANK.get(existing_q, 0):
+                    best_matches[t_key] = entry
+                    
+    results = list(best_matches.values())
+    return results[:limit]
 
 
 OMDB_API_KEY = "4b9fde6b"
