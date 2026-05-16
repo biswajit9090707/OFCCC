@@ -736,14 +736,14 @@ def _fetch_omdb_metadata(title: str, year: str) -> Dict[str, Any]:
     _cache[cache_url] = (time.time(), empty)
     return empty
 
+import base64
+
 def _ftp_entry_to_card(entry: Dict[str, Any]) -> Dict[str, Any]:
     """Convert an FTP directory entry into a card-compatible dict for search results."""
-    section = entry.get("section", "English")
-    # full_path = section + '/' + raw folder name — matches <path:full_path> route
-    full_path = f"{section}/{entry['raw']}"
-    
     # Fetch poster from OMDb
     meta = _fetch_omdb_metadata(entry["title"], entry.get("year", ""))
+    
+    b64_title = base64.urlsafe_b64encode(entry["title"].encode()).decode().rstrip("=")
     
     return {
         "title": entry["title"],
@@ -751,7 +751,7 @@ def _ftp_entry_to_card(entry: Dict[str, Any]) -> Dict[str, Any]:
         "rating": meta.get("rating"),
         "kind": entry.get("kind") or "movie",
         "poster": meta.get("poster") or "",
-        "href": url_for("ftp_detail", full_path=full_path),
+        "href": url_for("ftp_detail_by_title", b64_title=b64_title),
         "source": "ftp",
         "quality": entry.get("quality", "")
     }
@@ -1802,32 +1802,39 @@ def telegram_private_stream(chat_id: str, message_id: int):
 
 # ─────────────────────── FTP ROUTES ────────────────────────────────────
 
-@app.route("/ftp/<path:full_path>")
-def ftp_detail(full_path: str):
-    """Detail page for an FTP folder — lists video files with Watch/Download.
-
-    full_path = '<section>/<raw folder name>', where section may itself contain
-    slashes (e.g. 'Indian/Hindi Movies').
-    """
-    # Find the longest matching section prefix (handles multi-segment sections)
-    known_sections = sorted([s for s, *_ in FTP_SECTIONS], key=len, reverse=True)
-    matched_section = None
-    folder = None
-    for sec in known_sections:
-        prefix = sec + "/"
-        if full_path.startswith(prefix):
-            matched_section = sec
-            folder = full_path[len(prefix):]
-            break
-    if not matched_section or not folder:
+@app.route("/ftp/t/<b64_title>")
+def ftp_detail_by_title(b64_title: str):
+    """Detail page for an FTP title — aggregates video files across all quality folders."""
+    try:
+        # Add padding back if missing
+        pad = len(b64_title) % 4
+        if pad:
+            b64_title += "=" * (4 - pad)
+        title = base64.urlsafe_b64decode(b64_title.encode()).decode()
+    except Exception:
         abort(404)
-
-    folder_url = f"{FTP_BASE}/{urllib.parse.quote(matched_section, safe='/')}/{urllib.parse.quote(folder)}/"
-    files = _list_ftp_folder_files(folder_url)
-    parsed = _parse_ftp_dirname(folder)
+        
+    entries = [e for e in _get_all_ftp_entries() if e["title"].lower() == title.lower()]
+    if not entries:
+        abort(404)
+        
+    primary = entries[0]
+    matched_section = primary.get("section", "Others").split("/")[0]
     
     # Fetch OMDb metadata
-    meta = _fetch_omdb_metadata(parsed["title"], parsed.get("year", ""))
+    meta = _fetch_omdb_metadata(primary["title"], primary.get("year", ""))
+    
+    # Aggregate files from all matching folders
+    files = []
+    for entry in entries:
+        folder_url = entry.get("folder_url")
+        if not folder_url:
+            folder_url = f"{FTP_BASE}/{urllib.parse.quote(entry.get('section', 'Others'), safe='/')}/{urllib.parse.quote(entry['raw'])}/"
+        
+        folder_files = _list_ftp_folder_files(folder_url)
+        for f in folder_files:
+            f["_folder_quality"] = entry.get("quality", "")
+        files.extend(folder_files)
     
     # Build download list with signed tokens
     downloads = []
@@ -1836,7 +1843,7 @@ def ftp_detail(full_path: str):
     for f in files:
         token = _make_ftp_token(f["url"], f["name"])
         parsed_q = _parse_ftp_dirname(f["name"])
-        quality = parsed_q.get("quality") or parsed.get("quality") or "FTP"
+        quality = parsed_q.get("quality") or f.get("_folder_quality") or "FTP"
         dl = {
             "quality": quality,
             "size": "",
@@ -1865,18 +1872,25 @@ def ftp_detail(full_path: str):
         else:
             downloads.append(dl)
             
+    # Sort season groups naturally
+    sorted_groups = {k: season_groups[k] for k in sorted(season_groups.keys())}
+    
+    # Sort flat downloads by quality (rough estimate)
+    q_rank = {"4K": 10, "2160P": 9, "1080P": 8, "720P": 7, "WEB-DL": 6, "WEBRIP": 5, "HDTS": -1, "HDCAM": -2}
+    downloads.sort(key=lambda d: q_rank.get(d["quality"].upper(), 0), reverse=True)
+            
     # Build a minimal item dict compatible with movie.html
     item = {
-        "title": parsed["title"] or folder,
-        "year": parsed.get("year") or "",
+        "title": primary["title"],
+        "year": primary.get("year") or "",
         "rating": meta.get("rating"),
-        "overview": meta.get("overview") or f"Source: FTP — {matched_section}",
+        "overview": meta.get("overview") or f"Source: FTP",
         "genres": meta.get("genres") or [],
         "runtime": meta.get("runtime"),
         "poster": meta.get("poster") or "",
         "backdrop": meta.get("poster") or "",
         "downloads": downloads,
-        "season_groups": season_groups,
+        "season_groups": sorted_groups,
         "kind": "series" if matched_section == "TV_Series" else "movie",
         "is_custom": False,
         "source": "ftp",
