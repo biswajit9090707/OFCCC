@@ -581,10 +581,17 @@ def _parse_ftp_dirname(dirname: str) -> Dict[str, Any]:
     # Remove trailing brackets like [DDN], {DDN], etc.
     name = re.sub(r"[\[\{][^\]\}]*[\]\}]", "", dirname).strip()
     # Detect resolution
+    # Detect resolution and common release group terms
     quality = ""
-    q_match = re.search(r"\b(4K|2160p|1080p|720p|480p|360p|HDTS|HDCAM|HDRip|WEBRip|BluRay|BRRip|DVDRip|WEB-DL)\b", name, re.IGNORECASE)
+    q_match = re.search(r"\b(4K|2160p|1080p|720p|480p|360p|HDTS|HDCAM|HDRip|WEBRip|BluRay|BRRip|DVDRip|WEB-DL|Combo|x264|x265|HEVC|10bit)\b", name, re.IGNORECASE)
     if q_match:
-        quality = q_match.group(1).upper()
+        # If it matched a quality like 1080p, save it. Otherwise try to find the actual quality.
+        q_val = q_match.group(1).upper()
+        if q_val in ["4K", "2160P", "1080P", "720P", "480P", "360P", "HDTS", "HDCAM", "HDRIP", "WEBRIP", "BLURAY", "BRRIP", "DVDRIP", "WEB-DL"]:
+            quality = q_val
+        else:
+            q2 = re.search(r"\b(4K|2160p|1080p|720p|480p|360p|HDTS|HDCAM|HDRip|WEBRip|BluRay|BRRip|DVDRip|WEB-DL)\b", name, re.IGNORECASE)
+            if q2: quality = q2.group(1).upper()
     # Extract year
     year = ""
     y_match = re.search(r"\b(19\d{2}|20\d{2})\b", name)
@@ -1824,18 +1831,40 @@ def ftp_detail(full_path: str):
     
     # Build download list with signed tokens
     downloads = []
+    season_groups = {}
+    
     for f in files:
         token = _make_ftp_token(f["url"], f["name"])
         parsed_q = _parse_ftp_dirname(f["name"])
         quality = parsed_q.get("quality") or parsed.get("quality") or "FTP"
-        downloads.append({
+        dl = {
             "quality": quality,
             "size": "",
             "url": url_for("ftp_download_page", token=token),
             "file_name": f["name"],
             "stream_url": url_for("ftp_stream", token=token),
             "download_url": url_for("ftp_download_stream", token=token),
-        })
+        }
+        
+        sub = f.get("subfolder", "").strip()
+        group = None
+        if sub:
+            group = sub
+        elif matched_section == "TV_Series":
+            # Extract Season from filename if no subfolder
+            s_match = re.search(r'(?i)S(\d{1,2})E', f["name"])
+            if s_match:
+                group = f"Season {int(s_match.group(1))}"
+            else:
+                group = "Episodes"
+                
+        if group:
+            if group not in season_groups:
+                season_groups[group] = []
+            season_groups[group].append(dl)
+        else:
+            downloads.append(dl)
+            
     # Build a minimal item dict compatible with movie.html
     item = {
         "title": parsed["title"] or folder,
@@ -1847,6 +1876,7 @@ def ftp_detail(full_path: str):
         "poster": meta.get("poster") or "",
         "backdrop": meta.get("poster") or "",
         "downloads": downloads,
+        "season_groups": season_groups,
         "kind": "series" if matched_section == "TV_Series" else "movie",
         "is_custom": False,
         "source": "ftp",

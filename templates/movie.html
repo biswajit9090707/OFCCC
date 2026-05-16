@@ -27,7 +27,34 @@
       {% if item.overview %}<p class="overview">{{ item.overview }}</p>{% endif %}
 
       <h2 class="dl-head">Downloads</h2>
-      {% if item.downloads %}
+      {% if item.season_groups %}
+        <div class="seasons-container">
+          {% for group_name, dls in item.season_groups.items() %}
+            <details class="season-group" style="margin-bottom: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; padding: 5px;" {% if loop.first %}open{% endif %}>
+              <summary style="cursor: pointer; padding: 10px; font-weight: bold; font-size: 1.1em;">{{ group_name or 'Episodes' }}</summary>
+              <ul class="dl-list" style="margin-top: 10px;">
+                {% for d in dls %}
+                  <li>
+                    <div class="dl-copy">
+                      <div class="dl-q">{{ d.quality }}</div>
+                      {% if d.size %}<div class="dl-s">{{ d.size }}</div>{% endif %}
+                      {% if d.file_name %}<div class="dl-s" style="font-size:.75em;opacity:.7;">{{ d.file_name }}</div>{% endif %}
+                    </div>
+                    <div class="dl-actions">
+                      {% if d.stream_url %}
+                        <a class="btn ghost" href="{{ d.stream_url }}">Watch</a>
+                      {% else %}
+                        <a class="btn ghost" href="{{ d.url.replace('/d/', '/play/').replace('/cdl/', '/cplay/') }}">Watch</a>
+                      {% endif %}
+                      <a class="btn" href="{{ d.url }}" rel="noopener">Download</a>
+                    </div>
+                  </li>
+                {% endfor %}
+              </ul>
+            </details>
+          {% endfor %}
+        </div>
+      {% elif item.downloads %}
         <ul class="dl-list">
           {% for d in item.downloads %}
             <li>
