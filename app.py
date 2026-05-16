@@ -536,11 +536,14 @@ def decode_dl_token(token: str) -> Optional[Dict[str, Any]]:
 
 # ─────────────────────────── FTP CONFIG ────────────────────────────────
 FTP_BASE = os.getenv("FTP_BASE", "http://ftp.ctgfun.com").rstrip("/")
+# Top-level sections: (path_on_server, kind, recurse_into_sub_dirs)
 FTP_SECTIONS = [
-    ("English", "movie"),
-    ("TV_Series", "series"),
-    ("Indian", "movie"),
-    ("Others", "movie"),
+    ("English", "movie", False),
+    ("TV_Series", "series", False),
+    # Indian has sub-dirs: Hindi Movies/, South Indian Movies/
+    ("Indian/Hindi Movies", "movie", False),
+    ("Indian/South Indian Movies", "movie", False),
+    ("Others", "movie", False),
 ]
 # Separate in-process cache for FTP listings (longer TTL — 10 min)
 _ftp_cache: Dict[str, tuple[float, Any]] = {}
@@ -595,28 +598,42 @@ def _parse_ftp_dirname(dirname: str) -> Dict[str, Any]:
 
 
 def _scrape_ftp_section(section: str) -> List[Dict[str, Any]]:
-    """Scrape one FTP directory section and return list of entry dicts."""
-    url = f"{FTP_BASE}/{section}/"
+    """Scrape one FTP directory section and return list of entry dicts.
+
+    'section' is the path component after FTP_BASE, e.g. 'English' or
+    'Indian/Hindi Movies'. The folder_url stored in each entry always uses
+    the original full path so the /ftp/<section>/<folder> route can
+    reconstruct it correctly.
+    """
+    url = f"{FTP_BASE}/{urllib.parse.quote(section, safe='/')}/"
     html = _ftp_cached_get(url, ttl=600)
     if not html:
         return []
     from bs4 import BeautifulSoup as _BS
     soup = _BS(html, "html.parser")
     entries = []
+    skip_suffixes = ("/", "../")
     for a in soup.find_all("a", href=True):
         href = a["href"]
         # Only keep sub-directories (folder links ending with /)
-        if not href.endswith("/") or href in ("/", "../", f"/{section}/"):
+        if not href.endswith("/"):
             continue
-        # Decode URL-encoded characters
+        # Skip parent / navigation links
+        decoded_href = urllib.parse.unquote(href)
+        if decoded_href in ("/", "../") or decoded_href.rstrip("/").endswith(section.split("/")[-1]):
+            continue
+        # Decode the last path segment = folder name
         decoded = urllib.parse.unquote(href.rstrip("/").split("/")[-1])
         if not decoded:
             continue
         parsed = _parse_ftp_dirname(decoded)
         if not parsed["title"]:
             continue
-        # Full URL to the folder page (for listing files inside)
-        folder_url = href if href.startswith("http") else f"{FTP_BASE}/{section}/{urllib.parse.quote(decoded)}/"
+        # Build full folder URL
+        if href.startswith("http"):
+            folder_url = href
+        else:
+            folder_url = f"{FTP_BASE}/{urllib.parse.quote(section, safe='/')}/{urllib.parse.quote(decoded)}/"
         entries.append({
             "raw": decoded,
             "folder_url": folder_url,
@@ -634,9 +651,9 @@ def _get_all_ftp_entries() -> List[Dict[str, Any]]:
     if hit and now - hit[0] < 600:
         return hit[1]
     combined: List[Dict[str, Any]] = []
-    for section, kind in FTP_SECTIONS:
+    for section, kind, *_ in FTP_SECTIONS:
         for entry in _scrape_ftp_section(section):
-            entry["kind"] = kind if section != "TV_Series" else "series"
+            entry["kind"] = kind
             combined.append(entry)
     _ftp_cache[cache_key] = (now, combined)
     return combined
@@ -658,15 +675,16 @@ def _search_ftp_entries(q: str, limit: int = 8) -> List[Dict[str, Any]]:
 
 def _ftp_entry_to_card(entry: Dict[str, Any]) -> Dict[str, Any]:
     """Convert an FTP directory entry into a card-compatible dict for search results."""
-    encoded_folder = urllib.parse.quote(entry["raw"], safe="")
     section = entry.get("section", "English")
+    # full_path = section + '/' + raw folder name — matches <path:full_path> route
+    full_path = f"{section}/{entry['raw']}"
     return {
         "title": entry["title"],
         "year": entry.get("year") or "",
         "rating": None,
         "kind": entry.get("kind") or "movie",
         "poster": "",
-        "href": url_for("ftp_detail", section=section, folder=entry["raw"]),
+        "href": url_for("ftp_detail", full_path=full_path),
         "source": "ftp",
     }
 
@@ -1127,9 +1145,29 @@ def search():
     page = max(1, int(request.args.get("page") or 1))
     if not q:
         return redirect(url_for("home"))
+
+    # Primary: HubStream API results
     data = _normalize_search(_cached_get(
         f"{API_BASE}/search/?query={requests.utils.quote(q)}&page={page}", ttl=120
     ))
+
+    # Also merge custom movies + FTP on page 1 only
+    if page == 1:
+        custom_results = _search_custom_movies(q)
+        ftp_results = [_ftp_entry_to_card(e) for e in _search_ftp_entries(q, limit=20)]
+
+        seen_hrefs: set = {r.get("href") for r in data.get("results", []) if r.get("href")}
+        extra: List[Dict[str, Any]] = []
+        for item in custom_results + ftp_results:
+            href = item.get("href") or ""
+            if href and href not in seen_hrefs:
+                seen_hrefs.add(href)
+                extra.append(item)
+
+        merged = extra + data.get("results", [])
+        data["results"] = merged
+        data["total"] = data.get("total", 0) + len(extra)
+
     return render_template("search.html", q=q, **data)
 
 
@@ -1675,13 +1713,27 @@ def telegram_private_stream(chat_id: str, message_id: int):
 
 # ─────────────────────── FTP ROUTES ────────────────────────────────────
 
-@app.route("/ftp/<section>/<path:folder>")
-def ftp_detail(section: str, folder: str):
-    """Detail page for an FTP folder — lists video files with Watch/Download."""
-    allowed_sections = {s for s, _ in FTP_SECTIONS}
-    if section not in allowed_sections:
+@app.route("/ftp/<path:full_path>")
+def ftp_detail(full_path: str):
+    """Detail page for an FTP folder — lists video files with Watch/Download.
+
+    full_path = '<section>/<raw folder name>', where section may itself contain
+    slashes (e.g. 'Indian/Hindi Movies').
+    """
+    # Find the longest matching section prefix (handles multi-segment sections)
+    known_sections = sorted([s for s, *_ in FTP_SECTIONS], key=len, reverse=True)
+    matched_section = None
+    folder = None
+    for sec in known_sections:
+        prefix = sec + "/"
+        if full_path.startswith(prefix):
+            matched_section = sec
+            folder = full_path[len(prefix):]
+            break
+    if not matched_section or not folder:
         abort(404)
-    folder_url = f"{FTP_BASE}/{section}/{urllib.parse.quote(folder)}/"
+
+    folder_url = f"{FTP_BASE}/{urllib.parse.quote(matched_section, safe='/')}/{urllib.parse.quote(folder)}/"
     files = _list_ftp_folder_files(folder_url)
     parsed = _parse_ftp_dirname(folder)
     # Build download list with signed tokens
@@ -1703,13 +1755,13 @@ def ftp_detail(section: str, folder: str):
         "title": parsed["title"] or folder,
         "year": parsed.get("year") or "",
         "rating": None,
-        "overview": f"Source: FTP — {section}",
+        "overview": f"Source: FTP — {matched_section}",
         "genres": [],
         "runtime": None,
         "poster": "",
         "backdrop": "",
         "downloads": downloads,
-        "kind": "series" if section == "TV_Series" else "movie",
+        "kind": "series" if matched_section == "TV_Series" else "movie",
         "is_custom": False,
         "source": "ftp",
     }
