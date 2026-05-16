@@ -736,20 +736,34 @@ def _fetch_omdb_metadata(title: str, year: str) -> Dict[str, Any]:
     return empty
 
 import base64
+from flask import Response
 
 def _ftp_entry_to_card(entry: Dict[str, Any]) -> Dict[str, Any]:
     """Convert an FTP directory entry into a card-compatible dict for search results."""
-    # Fetch poster from OMDb
-    meta = _fetch_omdb_metadata(entry["title"], entry.get("year", ""))
+    title = entry["title"]
+    year = entry.get("year") or ""
+    b64_title = base64.urlsafe_b64encode(title.encode()).decode().rstrip("=")
     
-    b64_title = base64.urlsafe_b64encode(entry["title"].encode()).decode().rstrip("=")
+    # Check cache for fast sync load
+    clean_title = re.sub(r'\b(S0\d|E0\d)\b.*', '', title, flags=re.IGNORECASE).strip()
+    cache_url = f"omdb_{clean_title}_{year}"
+    hit = _cache.get(cache_url)
+    
+    if hit:
+        meta = hit[1]
+        poster = meta.get("poster", "")
+        rating = meta.get("rating")
+    else:
+        # Don't block the search request! Lazy load via frontend route.
+        poster = url_for("omdb_poster", b64_title=b64_title, year=year)
+        rating = None
     
     return {
-        "title": entry["title"],
-        "year": entry.get("year") or "",
-        "rating": meta.get("rating"),
+        "title": title,
+        "year": year,
+        "rating": rating,
         "kind": entry.get("kind") or "movie",
-        "poster": meta.get("poster") or "",
+        "poster": poster,
         "href": url_for("ftp_detail_by_title", b64_title=b64_title),
         "source": "ftp",
         "quality": entry.get("quality", "")
@@ -1800,6 +1814,30 @@ def telegram_private_stream(chat_id: str, message_id: int):
 
 
 # ─────────────────────── FTP ROUTES ────────────────────────────────────
+
+@app.route("/api/omdb/poster/<b64_title>")
+def omdb_poster(b64_title: str):
+    """Lazy load OMDb poster. Redirects to image URL or returns an SVG placeholder."""
+    year = request.args.get("year", "")
+    try:
+        pad = len(b64_title) % 4
+        if pad: b64_title += "=" * (4 - pad)
+        title = base64.urlsafe_b64decode(b64_title.encode()).decode()
+    except Exception:
+        abort(404)
+        
+    meta = _fetch_omdb_metadata(title, year)
+    if meta.get("poster"):
+        return redirect(meta["poster"])
+    
+    # SVG Placeholder if no poster found
+    letter = title[0].upper() if title else '?'
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450">
+        <rect width="100%" height="100%" fill="#1a1a24"/>
+        <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#555" font-size="64" font-family="sans-serif">{letter}</text>
+    </svg>'''
+    return Response(svg, mimetype="image/svg+xml")
+
 
 @app.route("/ftp/t/<b64_title>")
 def ftp_detail_by_title(b64_title: str):
