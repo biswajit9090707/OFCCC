@@ -602,8 +602,8 @@ def _parse_ftp_dirname(dirname: str) -> Dict[str, Any]:
     raw_title = name[:cut_pos]
     # Replace dots/underscores used as word separators, but keep real dots
     title = re.sub(r"[._-]+", " ", raw_title).strip()
-    # Remove trailing/leading noise
-    title = re.sub(r"\s+", " ", title).strip(" -.")
+    # Remove trailing/leading noise, including leftover opening brackets from years like (2025)
+    title = re.sub(r"\s+", " ", title).strip(" -.([{\"'")
     return {"title": title, "year": year, "quality": quality}
 
 
