@@ -28,6 +28,8 @@ from bs4 import BeautifulSoup
 
 
 from itsdangerous import BadSignature, URLSafeSerializer
+import re
+import urllib.parse
 
 import asyncio
 
@@ -532,6 +534,185 @@ def decode_dl_token(token: str) -> Optional[Dict[str, Any]]:
     return data
 
 
+# ─────────────────────────── FTP CONFIG ────────────────────────────────
+FTP_BASE = os.getenv("FTP_BASE", "http://ftp.ctgfun.com").rstrip("/")
+FTP_SECTIONS = [
+    ("English", "movie"),
+    ("TV_Series", "series"),
+    ("Indian", "movie"),
+    ("Others", "movie"),
+]
+# Separate in-process cache for FTP listings (longer TTL — 10 min)
+_ftp_cache: Dict[str, tuple[float, Any]] = {}
+
+
+def _ftp_cached_get(url: str, ttl: int = 600) -> Optional[str]:
+    """Fetch a URL and return raw HTML text, with caching."""
+    now = time.time()
+    hit = _ftp_cache.get(url)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    try:
+        r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        r.raise_for_status()
+        text = r.text
+    except Exception as e:
+        app.logger.warning("FTP fetch failed for %s: %s", url, e)
+        text = None
+    _ftp_cache[url] = (now, text)
+    if len(_ftp_cache) > 128:
+        oldest = sorted(_ftp_cache.items(), key=lambda kv: kv[1][0])[:len(_ftp_cache) - 64]
+        for k, _ in oldest:
+            _ftp_cache.pop(k, None)
+    return text
+
+
+def _parse_ftp_dirname(dirname: str) -> Dict[str, Any]:
+    """Extract clean title, year and quality from an FTP directory name.
+
+    Example: 'Sinners.2025.1080p.WEBRip.x264 [DDN]' → title='Sinners', year='2025', quality='1080p'
+    """
+    # Remove trailing brackets like [DDN], {DDN], etc.
+    name = re.sub(r"[\[\{][^\]\}]*[\]\}]", "", dirname).strip()
+    # Detect resolution
+    quality = ""
+    q_match = re.search(r"\b(4K|2160p|1080p|720p|480p|360p|HDTS|HDCAM|HDRip|WEBRip|BluRay|BRRip|DVDRip|WEB-DL)\b", name, re.IGNORECASE)
+    if q_match:
+        quality = q_match.group(1).upper()
+    # Extract year
+    year = ""
+    y_match = re.search(r"\b(19\d{2}|20\d{2})\b", name)
+    if y_match:
+        year = y_match.group(1)
+    # Build clean title: take everything before the year (or resolution if no year)
+    cut_pos = y_match.start() if y_match else (q_match.start() if q_match else len(name))
+    raw_title = name[:cut_pos]
+    # Replace dots/underscores used as word separators, but keep real dots
+    title = re.sub(r"[._-]+", " ", raw_title).strip()
+    # Remove trailing/leading noise
+    title = re.sub(r"\s+", " ", title).strip(" -.")
+    return {"title": title, "year": year, "quality": quality}
+
+
+def _scrape_ftp_section(section: str) -> List[Dict[str, Any]]:
+    """Scrape one FTP directory section and return list of entry dicts."""
+    url = f"{FTP_BASE}/{section}/"
+    html = _ftp_cached_get(url, ttl=600)
+    if not html:
+        return []
+    from bs4 import BeautifulSoup as _BS
+    soup = _BS(html, "html.parser")
+    entries = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        # Only keep sub-directories (folder links ending with /)
+        if not href.endswith("/") or href in ("/", "../", f"/{section}/"):
+            continue
+        # Decode URL-encoded characters
+        decoded = urllib.parse.unquote(href.rstrip("/").split("/")[-1])
+        if not decoded:
+            continue
+        parsed = _parse_ftp_dirname(decoded)
+        if not parsed["title"]:
+            continue
+        # Full URL to the folder page (for listing files inside)
+        folder_url = href if href.startswith("http") else f"{FTP_BASE}/{section}/{urllib.parse.quote(decoded)}/"
+        entries.append({
+            "raw": decoded,
+            "folder_url": folder_url,
+            "section": section,
+            **parsed,
+        })
+    return entries
+
+
+def _get_all_ftp_entries() -> List[Dict[str, Any]]:
+    """Return combined FTP entries from all sections (cached)."""
+    cache_key = "__ftp_all__"
+    now = time.time()
+    hit = _ftp_cache.get(cache_key)
+    if hit and now - hit[0] < 600:
+        return hit[1]
+    combined: List[Dict[str, Any]] = []
+    for section, kind in FTP_SECTIONS:
+        for entry in _scrape_ftp_section(section):
+            entry["kind"] = kind if section != "TV_Series" else "series"
+            combined.append(entry)
+    _ftp_cache[cache_key] = (now, combined)
+    return combined
+
+
+def _search_ftp_entries(q: str, limit: int = 8) -> List[Dict[str, Any]]:
+    """Search FTP entries by title keyword — fast in-memory after first load."""
+    if not q or len(q) < 2:
+        return []
+    q_lower = q.lower()
+    results = []
+    for entry in _get_all_ftp_entries():
+        if q_lower in entry["title"].lower():
+            results.append(entry)
+            if len(results) >= limit:
+                break
+    return results
+
+
+def _ftp_entry_to_card(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert an FTP directory entry into a card-compatible dict for search results."""
+    encoded_folder = urllib.parse.quote(entry["raw"], safe="")
+    section = entry.get("section", "English")
+    return {
+        "title": entry["title"],
+        "year": entry.get("year") or "",
+        "rating": None,
+        "kind": entry.get("kind") or "movie",
+        "poster": "",
+        "href": url_for("ftp_detail", section=section, folder=entry["raw"]),
+        "source": "ftp",
+    }
+
+
+def _list_ftp_folder_files(folder_url: str) -> List[Dict[str, Any]]:
+    """List video files inside an FTP folder page."""
+    html = _ftp_cached_get(folder_url, ttl=300)
+    if not html:
+        return []
+    from bs4 import BeautifulSoup as _BS
+    soup = _BS(html, "html.parser")
+    VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".ts"}
+    files = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if href in ("../", "/") or href.endswith("/"):
+            continue
+        ext = os.path.splitext(href.split("?")[0].lower())[1]
+        if ext not in VIDEO_EXTS:
+            continue
+        decoded_name = urllib.parse.unquote(href.split("/")[-1])
+        full_url = href if href.startswith("http") else folder_url.rstrip("/") + "/" + urllib.parse.quote(decoded_name)
+        files.append({
+            "name": decoded_name,
+            "url": full_url,
+            "ext": ext,
+        })
+    return files
+
+
+# Signed token for FTP stream/download (hides real URL)
+_ftp_signer = URLSafeSerializer(_SECRET, salt="ftp-dl-v1")
+
+
+def _make_ftp_token(url: str, name: str) -> str:
+    return _ftp_signer.dumps({"u": url, "n": name})
+
+
+def _decode_ftp_token(token: str) -> Optional[Dict[str, Any]]:
+    try:
+        d = _ftp_signer.loads(token)
+        return d if isinstance(d, dict) and d.get("u") else None
+    except BadSignature:
+        return None
+
+
 # ────────────────────────── tiny in-process cache ──────────────────────
 _cache: Dict[str, tuple[float, Any]] = {}
 
@@ -714,15 +895,10 @@ def _live_search_results(q: str, limit: int = 8) -> List[Dict[str, Any]]:
     seen: set[str] = set()
 
     def add_item(item: Dict[str, Any]) -> None:
-        title = (item.get("title") or "").lower()
         href = item.get("href") or (
             url_for("title", tmdb_id=item["tmdb_id"]) if item.get("tmdb_id") else ""
         )
         if not href:
-            return
-        
-        # Proactive FTP Filter: Skip if title or URL contains FTP signatures
-        if "ftp" in title or "ftp" in href.lower() or "ctgfun" in href.lower():
             return
 
         key = href
@@ -736,6 +912,7 @@ def _live_search_results(q: str, limit: int = 8) -> List[Dict[str, Any]]:
             "kind": item.get("kind") or "movie",
             "poster": item.get("poster") or "",
             "href": href,
+            "source": item.get("source") or "api",
         })
 
     for item in custom_results:
@@ -1494,6 +1671,97 @@ def custom_download_stream(token: str):
 @app.route("/tstream/c/<chat_id>/<int:message_id>")
 def telegram_private_stream(chat_id: str, message_id: int):
     abort(404)
+
+
+# ─────────────────────── FTP ROUTES ────────────────────────────────────
+
+@app.route("/ftp/<section>/<path:folder>")
+def ftp_detail(section: str, folder: str):
+    """Detail page for an FTP folder — lists video files with Watch/Download."""
+    allowed_sections = {s for s, _ in FTP_SECTIONS}
+    if section not in allowed_sections:
+        abort(404)
+    folder_url = f"{FTP_BASE}/{section}/{urllib.parse.quote(folder)}/"
+    files = _list_ftp_folder_files(folder_url)
+    parsed = _parse_ftp_dirname(folder)
+    # Build download list with signed tokens
+    downloads = []
+    for f in files:
+        token = _make_ftp_token(f["url"], f["name"])
+        parsed_q = _parse_ftp_dirname(f["name"])
+        quality = parsed_q.get("quality") or parsed.get("quality") or "FTP"
+        downloads.append({
+            "quality": quality,
+            "size": "",
+            "url": url_for("ftp_download_page", token=token),
+            "file_name": f["name"],
+            "stream_url": url_for("ftp_stream", token=token),
+            "download_url": url_for("ftp_download_stream", token=token),
+        })
+    # Build a minimal item dict compatible with movie.html
+    item = {
+        "title": parsed["title"] or folder,
+        "year": parsed.get("year") or "",
+        "rating": None,
+        "overview": f"Source: FTP — {section}",
+        "genres": [],
+        "runtime": None,
+        "poster": "",
+        "backdrop": "",
+        "downloads": downloads,
+        "kind": "series" if section == "TV_Series" else "movie",
+        "is_custom": False,
+        "source": "ftp",
+    }
+    return render_template("movie.html", item=item)
+
+
+@app.route("/ftp-dl-page/<token>")
+def ftp_download_page(token: str):
+    """FTP download landing page."""
+    info = _decode_ftp_token(token)
+    if not info:
+        abort(404)
+    fname = info.get("n") or info["u"].split("/")[-1]
+    return render_template(
+        "custom_download.html",
+        token=token,
+        title=fname,
+        quality="FTP",
+        direct_url=url_for("ftp_download_stream", token=token),
+    )
+
+
+@app.route("/ftp-stream/<token>")
+def ftp_stream(token: str):
+    """Proxy-stream an FTP file inline (for Watch)."""
+    info = _decode_ftp_token(token)
+    if not info:
+        abort(404)
+    fname = info.get("n") or info["u"].split("/")[-1]
+    return _proxy_http_stream(info["u"], fname, as_attachment=False)
+
+
+@app.route("/ftp-dl/<token>")
+def ftp_download_stream(token: str):
+    """Proxy-stream an FTP file as attachment (for Download)."""
+    info = _decode_ftp_token(token)
+    if not info:
+        abort(404)
+    fname = info.get("n") or info["u"].split("/")[-1]
+    return _proxy_http_stream(info["u"], fname, as_attachment=True)
+
+
+@app.route("/api/ftp-search")
+def api_ftp_search():
+    """JSON endpoint: search FTP listings by keyword."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"results": []})
+    entries = _search_ftp_entries(q, limit=20)
+    results = [_ftp_entry_to_card(e) for e in entries]
+    return jsonify({"results": results, "total": len(results)})
+
 
 
 @app.errorhandler(404)

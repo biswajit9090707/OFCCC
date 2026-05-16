@@ -34,10 +34,19 @@
               <div class="dl-copy">
                 <div class="dl-q">{{ d.quality }}</div>
                 {% if d.size %}<div class="dl-s">{{ d.size }}</div>{% endif %}
+                {% if d.file_name %}<div class="dl-s" style="font-size:.75em;opacity:.7;">{{ d.file_name }}</div>{% endif %}
               </div>
               <div class="dl-actions">
-                <a class="btn ghost" href="{{ d.url.replace('/d/', '/play/').replace('/cdl/', '/cplay/') }}">Watch</a>
-                <a class="btn" href="{{ d.url }}" rel="noopener">Download</a>
+                {% if d.stream_url %}
+                  <a class="btn ghost" href="{{ d.stream_url }}">Watch</a>
+                {% else %}
+                  <a class="btn ghost" href="{{ d.url.replace('/d/', '/play/').replace('/cdl/', '/cplay/') }}">Watch</a>
+                {% endif %}
+                {% if d.download_url %}
+                  <a class="btn" href="{{ d.download_url }}" rel="noopener">Download</a>
+                {% else %}
+                  <a class="btn" href="{{ d.url }}" rel="noopener">Download</a>
+                {% endif %}
               </div>
             </li>
           {% endfor %}
