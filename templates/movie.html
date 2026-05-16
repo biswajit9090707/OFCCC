@@ -42,11 +42,7 @@
                 {% else %}
                   <a class="btn ghost" href="{{ d.url.replace('/d/', '/play/').replace('/cdl/', '/cplay/') }}">Watch</a>
                 {% endif %}
-                {% if d.download_url %}
-                  <a class="btn" href="{{ d.download_url }}" rel="noopener">Download</a>
-                {% else %}
-                  <a class="btn" href="{{ d.url }}" rel="noopener">Download</a>
-                {% endif %}
+                <a class="btn" href="{{ d.url }}" rel="noopener">Download</a>
               </div>
             </li>
           {% endfor %}

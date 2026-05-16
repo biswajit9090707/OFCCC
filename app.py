@@ -544,6 +544,9 @@ FTP_SECTIONS = [
     ("Indian/Hindi Movies", "movie", False),
     ("Indian/South Indian Movies", "movie", False),
     ("Others", "movie", False),
+    ("Others/4K MOVIES", "movie", False),
+    ("Others/Asian Movie", "movie", False),
+    ("Others/European Movies", "movie", False),
 ]
 # Separate in-process cache for FTP listings (longer TTL — 10 min)
 _ftp_cache: Dict[str, tuple[float, Any]] = {}
@@ -644,17 +647,34 @@ def _scrape_ftp_section(section: str) -> List[Dict[str, Any]]:
 
 
 def _get_all_ftp_entries() -> List[Dict[str, Any]]:
-    """Return combined FTP entries from all sections (cached)."""
+    """Return combined FTP entries from all sections (cached, deduplicated by best quality)."""
     cache_key = "__ftp_all__"
     now = time.time()
     hit = _ftp_cache.get(cache_key)
     if hit and now - hit[0] < 600:
         return hit[1]
-    combined: List[Dict[str, Any]] = []
+    
+    # Quality ranking to keep the best one per title
+    Q_RANK = {"4K": 10, "2160P": 9, "1080P": 8, "720P": 7, "WEB-DL": 6, "WEBRIP": 5, "BLURAY": 4, "BRRIP": 3, "DVDRIP": 2, "480P": 1, "HDTS": -1, "HDCAM": -2}
+    
+    best_entries: Dict[str, Dict[str, Any]] = {}
+    
     for section, kind, *_ in FTP_SECTIONS:
         for entry in _scrape_ftp_section(section):
             entry["kind"] = kind
-            combined.append(entry)
+            title_key = entry["title"].lower()
+            q_str = entry.get("quality", "").upper()
+            rank = Q_RANK.get(q_str, 0)
+            
+            if title_key not in best_entries:
+                best_entries[title_key] = entry
+            else:
+                existing_q = best_entries[title_key].get("quality", "").upper()
+                existing_rank = Q_RANK.get(existing_q, 0)
+                if rank > existing_rank:
+                    best_entries[title_key] = entry
+
+    combined = list(best_entries.values())
     _ftp_cache[cache_key] = (now, combined)
     return combined
 
@@ -673,24 +693,67 @@ def _search_ftp_entries(q: str, limit: int = 8) -> List[Dict[str, Any]]:
     return results
 
 
+OMDB_API_KEY = "4b9fde6b"
+
+def _fetch_omdb_metadata(title: str, year: str) -> Dict[str, Any]:
+    """Fetch movie/series metadata from OMDb API with caching."""
+    # Ensure title doesn't have quality tags for better matching
+    clean_title = re.sub(r'\b(S0\d|E0\d)\b.*', '', title, flags=re.IGNORECASE).strip()
+    cache_url = f"omdb_{clean_title}_{year}"
+    hit = _cache.get(cache_url)
+    if hit and time.time() - hit[0] < 86400:  # Cache for 24h
+        return hit[1]
+    
+    url = f"http://www.omdbapi.com/?t={requests.utils.quote(clean_title)}&apikey={OMDB_API_KEY}"
+    if year:
+        url += f"&y={year}"
+        
+    try:
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("Response") == "True":
+                res = {
+                    "poster": data.get("Poster", "") if data.get("Poster") != "N/A" else "",
+                    "overview": data.get("Plot", "") if data.get("Plot") != "N/A" else "",
+                    "rating": float(data.get("imdbRating", 0)) if data.get("imdbRating", "N/A") != "N/A" else None,
+                    "runtime": data.get("Runtime", ""),
+                    "genres": [g.strip() for g in data.get("Genre", "").split(",")] if data.get("Genre", "N/A") != "N/A" else []
+                }
+                _cache[cache_url] = (time.time(), res)
+                return res
+    except Exception:
+        pass
+    
+    empty = {"poster": "", "overview": "", "rating": None, "runtime": "", "genres": []}
+    _cache[cache_url] = (time.time(), empty)
+    return empty
+
 def _ftp_entry_to_card(entry: Dict[str, Any]) -> Dict[str, Any]:
     """Convert an FTP directory entry into a card-compatible dict for search results."""
     section = entry.get("section", "English")
     # full_path = section + '/' + raw folder name — matches <path:full_path> route
     full_path = f"{section}/{entry['raw']}"
+    
+    # Fetch poster from OMDb
+    meta = _fetch_omdb_metadata(entry["title"], entry.get("year", ""))
+    
     return {
         "title": entry["title"],
         "year": entry.get("year") or "",
-        "rating": None,
+        "rating": meta.get("rating"),
         "kind": entry.get("kind") or "movie",
-        "poster": "",
+        "poster": meta.get("poster") or "",
         "href": url_for("ftp_detail", full_path=full_path),
         "source": "ftp",
+        "quality": entry.get("quality", "")
     }
 
 
-def _list_ftp_folder_files(folder_url: str) -> List[Dict[str, Any]]:
-    """List video files inside an FTP folder page."""
+def _list_ftp_folder_files(folder_url: str, depth: int = 0, max_depth: int = 3) -> List[Dict[str, Any]]:
+    """List video files inside an FTP folder page (recursive for TV series seasons/episodes)."""
+    if depth > max_depth:
+        return []
     html = _ftp_cached_get(folder_url, ttl=300)
     if not html:
         return []
@@ -700,13 +763,25 @@ def _list_ftp_folder_files(folder_url: str) -> List[Dict[str, Any]]:
     files = []
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        if href in ("../", "/") or href.endswith("/"):
+        decoded_href = urllib.parse.unquote(href)
+        # Skip parent navigation
+        if decoded_href in ("../", "/") or decoded_href.endswith(folder_url.split("/")[-2] + "/"):
             continue
+            
+        full_url = href if href.startswith("http") else folder_url.rstrip("/") + "/" + urllib.parse.quote(decoded_href.rstrip("/").split("/")[-1])
+        
+        # Recurse into subdirectories
+        if href.endswith("/"):
+            # append directory name to full_url
+            sub_url = full_url + "/"
+            files.extend(_list_ftp_folder_files(sub_url, depth + 1, max_depth))
+            continue
+            
         ext = os.path.splitext(href.split("?")[0].lower())[1]
         if ext not in VIDEO_EXTS:
             continue
+            
         decoded_name = urllib.parse.unquote(href.split("/")[-1])
-        full_url = href if href.startswith("http") else folder_url.rstrip("/") + "/" + urllib.parse.quote(decoded_name)
         files.append({
             "name": decoded_name,
             "url": full_url,
@@ -909,41 +984,40 @@ def _live_search_results(q: str, limit: int = 8) -> List[Dict[str, Any]]:
         f"{API_BASE}/search/?query={requests.utils.quote(q)}&page=1", ttl=60
     ))
 
-    results: List[Dict[str, Any]] = []
-    seen: set[str] = set()
-
-    def add_item(item: Dict[str, Any]) -> None:
-        href = item.get("href") or (
-            url_for("title", tmdb_id=item["tmdb_id"]) if item.get("tmdb_id") else ""
-        )
-        if not href:
-            return
-
-        key = href
-        if key in seen:
-            return
-        seen.add(key)
-        results.append({
-            "title": item.get("title") or "Untitled",
-            "year": item.get("year") or "",
-            "rating": item.get("rating"),
-            "kind": item.get("kind") or "movie",
-            "poster": item.get("poster") or "",
-            "href": href,
-            "source": item.get("source") or "api",
-        })
-
-    for item in custom_results:
-        add_item(item)
-        if len(results) >= limit:
-            return results
-
+    ftp_results = [_ftp_entry_to_card(e) for e in _search_ftp_entries(q, limit=limit)]
+    
+    seen_titles = {}
+    
+    # 1. Add API results
     for item in api_data.get("results", []):
-        add_item(item)
-        if len(results) >= limit:
-            break
-
-    return results
+        title_key = (item.get("title") or "").lower()
+        if title_key:
+            seen_titles[title_key] = {
+                "title": item.get("title") or "Untitled",
+                "year": item.get("year") or "",
+                "rating": item.get("rating"),
+                "kind": item.get("kind") or "movie",
+                "poster": item.get("poster") or "",
+                "href": item.get("href") or (url_for("title", tmdb_id=item["tmdb_id"]) if item.get("tmdb_id") else ""),
+                "source": item.get("source") or "api",
+            }
+            
+    # 2. Add Custom results (overrides API if same title)
+    for item in custom_results:
+        title_key = (item.get("title") or "").lower()
+        if title_key:
+            seen_titles[title_key] = item
+            
+    # 3. Add FTP results (overrides API and Custom if same title)
+    for item in ftp_results:
+        title_key = (item.get("title") or "").lower()
+        if title_key:
+            seen_titles[title_key] = item
+            
+    # Merge, filter empty hrefs, sort, and slice to limit
+    results = [v for v in seen_titles.values() if v.get("href")]
+    results.sort(key=lambda x: x.get("title", ""))
+    return results[:limit]
 
 
 def _build_downloads(items: List[Dict[str, Any]] | None, title: str = "") -> List[Dict[str, Any]]:
@@ -1156,17 +1230,25 @@ def search():
         custom_results = _search_custom_movies(q)
         ftp_results = [_ftp_entry_to_card(e) for e in _search_ftp_entries(q, limit=20)]
 
-        seen_hrefs: set = {r.get("href") for r in data.get("results", []) if r.get("href")}
-        extra: List[Dict[str, Any]] = []
-        for item in custom_results + ftp_results:
-            href = item.get("href") or ""
-            if href and href not in seen_hrefs:
-                seen_hrefs.add(href)
-                extra.append(item)
+        # Group all results by lowercased title to keep the best version (FTP > Hubstream > Custom)
+        # We will keep existing API data but if an FTP result matches the title, we replace it.
+        seen_titles = {}
+        for item in data.get("results", []):
+            seen_titles[(item.get("title") or "").lower()] = item
+            
+        for item in custom_results:
+            seen_titles[(item.get("title") or "").lower()] = item
+            
+        for item in ftp_results:
+            # Always override API/Custom with FTP if available (it has better direct qualities)
+            seen_titles[(item.get("title") or "").lower()] = item
 
-        merged = extra + data.get("results", [])
+        merged = list(seen_titles.values())
+        # Sort so it isn't random
+        merged.sort(key=lambda x: x.get("title", ""))
+        
         data["results"] = merged
-        data["total"] = data.get("total", 0) + len(extra)
+        data["total"] = len(merged)
 
     return render_template("search.html", q=q, **data)
 
@@ -1736,6 +1818,10 @@ def ftp_detail(full_path: str):
     folder_url = f"{FTP_BASE}/{urllib.parse.quote(matched_section, safe='/')}/{urllib.parse.quote(folder)}/"
     files = _list_ftp_folder_files(folder_url)
     parsed = _parse_ftp_dirname(folder)
+    
+    # Fetch OMDb metadata
+    meta = _fetch_omdb_metadata(parsed["title"], parsed.get("year", ""))
+    
     # Build download list with signed tokens
     downloads = []
     for f in files:
@@ -1754,12 +1840,12 @@ def ftp_detail(full_path: str):
     item = {
         "title": parsed["title"] or folder,
         "year": parsed.get("year") or "",
-        "rating": None,
-        "overview": f"Source: FTP — {matched_section}",
-        "genres": [],
-        "runtime": None,
-        "poster": "",
-        "backdrop": "",
+        "rating": meta.get("rating"),
+        "overview": meta.get("overview") or f"Source: FTP — {matched_section}",
+        "genres": meta.get("genres") or [],
+        "runtime": meta.get("runtime"),
+        "poster": meta.get("poster") or "",
+        "backdrop": meta.get("poster") or "",
         "downloads": downloads,
         "kind": "series" if matched_section == "TV_Series" else "movie",
         "is_custom": False,

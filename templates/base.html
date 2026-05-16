@@ -247,6 +247,13 @@
       }
     }
   });
+
+  window.addEventListener('pageshow', function (e) {
+    // Clear buffering states if we go back in browser history
+    loadingBar.classList.remove('active', 'done');
+    globalLoader.classList.remove('active');
+    document.querySelectorAll('.is-loading').forEach(el => el.classList.remove('is-loading'));
+  });
 })();
 </script>
 </body>
