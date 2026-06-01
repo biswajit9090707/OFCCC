@@ -123,15 +123,12 @@
 <script src="https://pl29605735.effectivecpmnetwork.com/39/a4/0d/39a40d80511d14d909d6b366602aefdb.js"></script>
 <script>
   (function() {
-    let firstAdClick = true;
     document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('.dl-cta').forEach(btn => {
         btn.addEventListener('click', function(e) {
-          if (firstAdClick) {
+          if (!sessionStorage.getItem('ad_clicked_for_' + window.location.pathname)) {
             e.preventDefault();
-            firstAdClick = false;
-            // The global ad script intercepts the click to open the ad.
-            // We prevent default so the actual download/watch doesn't trigger on this first click.
+            sessionStorage.setItem('ad_clicked_for_' + window.location.pathname, 'true');
           }
         });
       });
