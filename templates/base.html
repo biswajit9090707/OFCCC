@@ -236,11 +236,13 @@
     const navItem = e.target.closest('.card, .btn, .category-btn, .tab, .pill, .dl-cta, .pagination a');
     
     if (navItem && !navItem.hasAttribute('target') && !navItem.classList.contains('dl-back')) {
-      const href = navItem.getAttribute('href');
-      // Only buffer if it's an actual navigation link
-      if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+      const href = navItem.getAttribute('href') || '';
+      // Skip loader for direct file downloads or external links
+      const isFileDownload = /\/(file|stream|cdlfile|cstream|fdl)\//i.test(href) || href.match(/\.(mp4|mkv|avi|mov|zip|rar|pdf)$/i);
+      const isExternal = href.startsWith('http') || href.startsWith('//');
+      // Only buffer if it's an actual page navigation link
+      if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !isFileDownload && !isExternal) {
         startBuffering();
-        // Add specific loading class to buttons if they are styled for it
         if (navItem.classList.contains('btn') || navItem.classList.contains('pill') || navItem.classList.contains('dl-cta')) {
            navItem.classList.add('is-loading');
         }
@@ -249,7 +251,14 @@
   });
 
   window.addEventListener('pageshow', function (e) {
-    // Clear buffering states if we go back in browser history
+    // Clear buffering states when page is shown (back navigation or first load)
+    loadingBar.classList.remove('active', 'done');
+    globalLoader.classList.remove('active');
+    document.querySelectorAll('.is-loading').forEach(el => el.classList.remove('is-loading'));
+  });
+
+  // Also clear on focus (user returns from ad redirect tab)
+  window.addEventListener('focus', function() {
     loadingBar.classList.remove('active', 'done');
     globalLoader.classList.remove('active');
     document.querySelectorAll('.is-loading').forEach(el => el.classList.remove('is-loading'));
