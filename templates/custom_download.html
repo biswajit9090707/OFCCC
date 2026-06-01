@@ -1,5 +1,28 @@
 {% extends "base.html" %}
-{% block title %}Download · {{ title }} · {{ site_name }}{% endblock %}
+{% block title %}Download · {{ title }} · {{ site_name }}
+
+
+<!-- Ad Network Script -->
+<script src="https://pl29605735.effectivecpmnetwork.com/39/a4/0d/39a40d80511d14d909d6b366602aefdb.js"></script>
+<script>
+  (function() {
+    let firstAdClick = true;
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('.dl-cta').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+          if (firstAdClick) {
+            e.preventDefault();
+            firstAdClick = false;
+            // The global ad script intercepts the click to open the ad.
+            // We prevent default so the actual download/watch doesn't trigger on this first click.
+          }
+        });
+      });
+    });
+  })();
+</script>
+
+{% endblock %}
 {% block content %}
 <style>
   .ad-zone{width:100%;border-radius:12px;background:var(--panel-2);border:1px dashed var(--line);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;color:var(--muted);font-size:12px;position:relative;}
@@ -93,4 +116,27 @@
   },1000);
 })();
 </script>
+
+
+
+<!-- Ad Network Script -->
+<script src="https://pl29605735.effectivecpmnetwork.com/39/a4/0d/39a40d80511d14d909d6b366602aefdb.js"></script>
+<script>
+  (function() {
+    let firstAdClick = true;
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('.dl-cta').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+          if (firstAdClick) {
+            e.preventDefault();
+            firstAdClick = false;
+            // The global ad script intercepts the click to open the ad.
+            // We prevent default so the actual download/watch doesn't trigger on this first click.
+          }
+        });
+      });
+    });
+  })();
+</script>
+
 {% endblock %}
