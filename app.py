@@ -451,12 +451,23 @@ def _configured_omdb_api_key() -> str:
     return _get_setting("omdb_api_key") or OMDB_API_KEY
 
 
-def _track_web(event_type: str, path: str = "") -> None:
+def _track_web(event_type: str, path: str = "", title: str = "") -> None:
     try:
+        # Get visitor IP (supports reverse proxy headers)
+        ip = (
+            request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            or request.headers.get("X-Real-IP", "")
+            or request.remote_addr
+            or "unknown"
+        )
         web_stats_col.insert_one({
             "event_type": event_type,
             "path": path[:200],
-            "ts": int(time.time())
+            "title": title[:200] if title else "",
+            "ip": ip[:64],
+            "ua": (request.headers.get("User-Agent") or "")[:200],
+            "ts": int(time.time()),
+            "day": time.strftime("%Y-%m-%d"),
         })
     except Exception:
         pass
@@ -491,19 +502,75 @@ def _bot_stats() -> Dict[str, Any]:
 def _web_stats() -> Dict[str, Any]:
     now = int(time.time())
     try:
-        def _s(event_type, since):
+        def _count(event_type, since):
             return web_stats_col.count_documents({"event_type": event_type, "ts": {"$gte": since}})
-        
+
+        def _unique(event_type, since):
+            """Count distinct IPs for unique visitor metrics."""
+            return len(web_stats_col.distinct("ip", {"event_type": event_type, "ts": {"$gte": since}}))
+
+        def _unique_any(since):
+            """Unique IPs across all events (any page visit)."""
+            return len(web_stats_col.distinct("ip", {"ts": {"$gte": since}}))
+
+        # 7-day daily chart data
+        chart_labels, chart_views, chart_dls = [], [], []
+        for i in range(6, -1, -1):
+            day_start = now - (i + 1) * 86400
+            day_end   = now - i * 86400
+            label = time.strftime("%b %d", time.gmtime(day_end - 3600))
+            chart_labels.append(label)
+            chart_views.append(web_stats_col.count_documents({"event_type": "view",  "ts": {"$gte": day_start, "$lt": day_end}}))
+            chart_dls.append(  web_stats_col.count_documents({"event_type": "download","ts": {"$gte": day_start, "$lt": day_end}}))
+
+        # Top 10 downloaded titles
+        pipeline = [
+            {"$match": {"event_type": "download", "title": {"$ne": ""}}},
+            {"$group": {"_id": "$title", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 10},
+        ]
+        top_titles = [{"title": d["_id"], "count": d["count"]} for d in web_stats_col.aggregate(pipeline)]
+
+        # Recent 15 events for activity feed
+        recent_raw = list(web_stats_col.find({}, {"event_type":1,"path":1,"title":1,"ip":1,"ts":1}).sort("ts",-1).limit(15))
+        recent_activity = []
+        for ev in recent_raw:
+            recent_activity.append({
+                "type":  ev.get("event_type", ""),
+                "path":  ev.get("path", ""),
+                "title": ev.get("title", ""),
+                "ip":    (ev.get("ip") or "")[:15] + "...",
+                "ago":   int((now - ev.get("ts", now)) / 60),
+            })
+
         return {
-            "views_today":     _s("view", now-86400),
-            "views_week":      _s("view", now-604800),
-            "views_month":     _s("view", now-2592000),
-            "searches_today":  _s("search", now-86400),
-            "searches_week":   _s("search", now-604800),
-            "dl_today":        _s("dl_click", now-86400),
-            "dl_month":        _s("dl_click", now-2592000),
+            # Page views
+            "views_today":        _count("view", now - 86400),
+            "views_week":         _count("view", now - 604800),
+            "views_month":        _count("view", now - 2592000),
+            # Unique visitors
+            "unique_today":       _unique_any(now - 86400),
+            "unique_week":        _unique_any(now - 604800),
+            "unique_month":       _unique_any(now - 2592000),
+            # Searches
+            "searches_today":     _count("search", now - 86400),
+            "searches_week":      _count("search", now - 604800),
+            # Downloads
+            "dl_today":           _count("download", now - 86400),
+            "dl_week":            _count("download", now - 604800),
+            "dl_month":           _count("download", now - 2592000),
+            # Charts
+            "chart_labels":       chart_labels,
+            "chart_views":        chart_views,
+            "chart_dls":          chart_dls,
+            # Top titles
+            "top_titles":         top_titles,
+            # Feed
+            "recent_activity":    recent_activity,
         }
-    except Exception:
+    except Exception as e:
+        app.logger.error("web_stats failed: %s", e)
         return {}
 
 
@@ -1136,8 +1203,26 @@ def _auto_track():
         _track_web("view", p)
     elif p == "/search":
         _track_web("search", p)
-    elif p.startswith("/d/"):
-        _track_web("dl_click", p)
+    elif p.startswith("/title/") or p.startswith("/c/"):
+        _track_web("view", p)
+    elif p.startswith("/file/") or p.startswith("/cdlfile/"):
+        # Actual file download — extract title from token if possible
+        token = p.split("/")[-1]
+        try:
+            info = decode_dl_token(token) or decode_custom_dl_token(token) or {}
+            title = info.get("t") or info.get("n") or ""
+        except Exception:
+            title = ""
+        _track_web("download", p, title=title)
+    elif p.startswith("/d/") or p.startswith("/cdl/"):
+        # Download page visit
+        token = p.split("/")[-1]
+        try:
+            info = decode_dl_token(token) or decode_custom_dl_token(token) or {}
+            title = info.get("t") or info.get("n") or ""
+        except Exception:
+            title = ""
+        _track_web("dl_page", p, title=title)
 
 
 @app.context_processor
@@ -1676,6 +1761,14 @@ def admin_settings():
         omdb_key=_get_setting("omdb_api_key"),
         saved=saved,
     )
+
+
+@app.route("/admin/api/analytics")
+@_admin_required
+def admin_api_analytics():
+    """Live analytics JSON — polled every 60s by the dashboard chart."""
+    return jsonify(_web_stats())
+
 
 
 @app.route("/admin/api/tmdb-search")
