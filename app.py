@@ -119,6 +119,7 @@ TG_CHANNEL = "ofcmovie"
 TG_CHANNEL_URL = f"https://t.me/{TG_CHANNEL}"
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+app.secret_key = os.getenv("SESSION_SECRET") or "ofcmovies@secret#key!2024$dl"
 
 
 
